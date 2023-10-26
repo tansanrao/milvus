@@ -162,6 +162,7 @@ type commonConfig struct {
 	RootCoordTimeTick   ParamItem `refreshable:"true"`
 	RootCoordStatistics ParamItem `refreshable:"true"`
 	RootCoordDml        ParamItem `refreshable:"false"`
+	ReplicateMsgChannel ParamItem `refreshable:"false"`
 
 	QueryCoordTimeTick ParamItem `refreshable:"true"`
 
@@ -216,6 +217,8 @@ type commonConfig struct {
 	EnableLockMetrics        ParamItem `refreshable:"false"`
 	LockSlowLogInfoThreshold ParamItem `refreshable:"true"`
 	LockSlowLogWarnThreshold ParamItem `refreshable:"true"`
+
+	TTMsgEnabled ParamItem `refreshable:"true"`
 }
 
 func (p *commonConfig) init(base *BaseTable) {
@@ -265,6 +268,16 @@ func (p *commonConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.RootCoordDml.Init(base.mgr)
+
+	p.ReplicateMsgChannel = ParamItem{
+		Key:          "msgChannel.chanNamePrefix.replicateMsg",
+		Version:      "2.3.2",
+		FallbackKeys: []string{"common.chanNamePrefix.replicateMsg"},
+		PanicIfEmpty: true,
+		Formatter:    chanNamePrefix,
+		Export:       true,
+	}
+	p.ReplicateMsgChannel.Init(base.mgr)
 
 	p.QueryCoordTimeTick = ParamItem{
 		Key:          "msgChannel.chanNamePrefix.queryTimeTick",
@@ -612,6 +625,14 @@ like the old password verification when updating the credential`,
 		Export:       true,
 	}
 	p.LockSlowLogWarnThreshold.Init(base.mgr)
+
+	p.TTMsgEnabled = ParamItem{
+		Key:          "common.ttMsgEnabled",
+		Version:      "2.3.2",
+		DefaultValue: "true",
+		Doc:          "Whether the instance disable sending ts messages",
+	}
+	p.TTMsgEnabled.Init(base.mgr)
 }
 
 type traceConfig struct {
@@ -1015,7 +1036,7 @@ please adjust in embedded Milvus: false`,
 	p.AccessLog.Enable = ParamItem{
 		Key:          "proxy.accessLog.enable",
 		Version:      "2.2.0",
-		DefaultValue: "true",
+		DefaultValue: "false",
 		Doc:          "if use access log",
 	}
 	p.AccessLog.Enable.Init(base.mgr)
@@ -1039,7 +1060,7 @@ please adjust in embedded Milvus: false`,
 		Key:          "proxy.accessLog.filename",
 		Version:      "2.2.0",
 		DefaultValue: "milvus_access_log.log",
-		Doc:          "Log filename, leave empty to disable file log.",
+		Doc:          "Log filename, leave empty to use stdout.",
 		Export:       true,
 	}
 	p.AccessLog.Filename.Init(base.mgr)
@@ -1063,7 +1084,7 @@ please adjust in embedded Milvus: false`,
 	p.AccessLog.RotatedTime = ParamItem{
 		Key:          "proxy.accessLog.rotatedTime",
 		Version:      "2.2.0",
-		DefaultValue: "3600",
+		DefaultValue: "0",
 		Doc:          "Max time for single access log file in seconds",
 	}
 	p.AccessLog.RotatedTime.Init(base.mgr)
@@ -1143,11 +1164,11 @@ type queryCoordConfig struct {
 	TaskMergeCap     ParamItem `refreshable:"false"`
 	TaskExecutionCap ParamItem `refreshable:"true"`
 
-	//---- Handoff ---
-	//Deprecated: Since 2.2.2
+	// ---- Handoff ---
+	// Deprecated: Since 2.2.2
 	AutoHandoff ParamItem `refreshable:"true"`
 
-	//---- Balance ---
+	// ---- Balance ---
 	AutoBalance                         ParamItem `refreshable:"true"`
 	Balancer                            ParamItem `refreshable:"true"`
 	GlobalRowCountFactor                ParamItem `refreshable:"true"`
@@ -1183,10 +1204,11 @@ type queryCoordConfig struct {
 	CheckHealthRPCTimeout       ParamItem `refreshable:"true"`
 	BrokerTimeout               ParamItem `refreshable:"false"`
 	CollectionRecoverTimesLimit ParamItem `refreshable:"true"`
+	ObserverTaskParallel        ParamItem `refreshable:"false"`
 }
 
 func (p *queryCoordConfig) init(base *BaseTable) {
-	//---- Task ---
+	// ---- Task ---
 	p.RetryNum = ParamItem{
 		Key:          "queryCoord.task.retrynum",
 		Version:      "2.2.0",
@@ -1494,6 +1516,16 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.CollectionRecoverTimesLimit.Init(base.mgr)
+
+	p.ObserverTaskParallel = ParamItem{
+		Key:          "queryCoord.observerTaskParallel",
+		Version:      "2.3.2",
+		DefaultValue: "16",
+		PanicIfEmpty: true,
+		Doc:          "the parallel observer dispatcher task number",
+		Export:       true,
+	}
+	p.ObserverTaskParallel.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////
@@ -2156,7 +2188,7 @@ the number of binlog file reaches to max value.`,
 	p.CompactionMaxParallelTasks = ParamItem{
 		Key:          "dataCoord.compaction.maxParallelTaskNum",
 		Version:      "2.2.12",
-		DefaultValue: "100",
+		DefaultValue: "10",
 		Export:       true,
 	}
 	p.CompactionMaxParallelTasks.Init(base.mgr)

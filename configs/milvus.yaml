@@ -94,6 +94,8 @@ minio:
   region: ""
   # Cloud whether use virtual host bucket mode
   useVirtualHost: false
+  # timeout for request time in milliseconds
+  requestTimeoutMs: 3000
 
 # Milvus supports four MQ: rocksmq(based on RockDB), natsmq(embedded nats-server), Pulsar and Kafka.
 # You can change your mq by setting mq.type field.
@@ -109,7 +111,7 @@ mq:
 pulsar:
   address: localhost # Address of pulsar
   port: 6650 # Port of Pulsar
-  webport: 80 # Web port of pulsar, if you connect direcly without proxy, should use 8080
+  webport: 80 # Web port of pulsar, if you connect directly without proxy, should use 8080
   maxMessageSize: 5242880 # 5 * 1024 * 1024 Bytes, Maximum size of each message in pulsar.
   tenant: public
   namespace: default
@@ -198,8 +200,10 @@ proxy:
   ginLogging: true
   maxTaskNum: 1024 # max task number of proxy task queue
   accessLog:
-    localPath: /tmp/milvus_accesslog
-    filename: milvus_access_log.log # Log filename, leave empty to disable file log.
+    enable: false
+    filename: "" # Log filename, leave empty to use stdout.
+    # localPath: /tmp/milvus_accesslog // log file rootpath
+    # maxSize: 64 # max log file size of singal log file to trigger rotate.
   http:
     enabled: true # Whether to enable the http server
     debug_mode: false # Whether to enable http server debug mode
@@ -344,7 +348,7 @@ dataCoord:
     balanceInterval: 360 #The interval for the channelBalancer on datacoord to check balance status
   segment:
     maxSize: 512 # Maximum size of a segment in MB
-    diskSegmentMaxSize: 2048 # Maximun size of a segment in MB for collection which has Disk index
+    diskSegmentMaxSize: 2048 # Maximum size of a segment in MB for collection which has Disk index
     sealProportion: 0.23
     # The time of the assignment expiration in ms
     # Warning! this parameter is an expert variable and closely related to data integrity. Without specific
@@ -373,7 +377,7 @@ dataCoord:
   compaction:
     enableAutoCompaction: true
     rpcTimeout: 10 # compaction rpc request timeout in seconds
-    maxParallelTaskNum: 100 # max parallel compaction task number
+    maxParallelTaskNum: 10 # max parallel compaction task number
     indexBasedCompaction: true
 
   enableGarbageCollection: true
@@ -464,6 +468,7 @@ common:
     rootCoordTimeTick: rootcoord-timetick
     rootCoordStatistics: rootcoord-statistics
     rootCoordDml: rootcoord-dml
+    replicateMsg: replicate-msg
     rootCoordDelta: rootcoord-delta
     search: search
     searchResult: searchResult
@@ -528,6 +533,7 @@ common:
     threshold:
       info: 500 # minimum milliseconds for printing durations in info level
       warn: 1000 # minimum milliseconds for printing durations in warn level
+  ttMsgEnabled: true # Whether the instance disable sending ts messages
 
 # QuotaConfig, configurations of Milvus quota and limits.
 # By default, we enable:

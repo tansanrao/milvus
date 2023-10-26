@@ -4,6 +4,7 @@ import numpy
 import pandas as pd
 import pytest
 
+from pymilvus import DataType
 from base.client_base import TestcaseBase
 from common import common_func as cf
 from common import common_type as ct
@@ -418,7 +419,7 @@ class TestCollectionParams(TestcaseBase):
         expected: exception
         """
         self._connect()
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe."}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
         self.collection_schema_wrap.init_collection_schema(fields=[], primary_field=ct.default_int64_field_name,
                                                            check_task=CheckTasks.err_res, check_items=error)
 
@@ -447,7 +448,7 @@ class TestCollectionParams(TestcaseBase):
         expected: raise exception
         """
         self._connect()
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe"}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
         self.collection_schema_wrap.init_collection_schema([field], check_task=CheckTasks.err_res, check_items=error)
 
     @pytest.mark.tags(CaseLabel.L2)
@@ -508,7 +509,7 @@ class TestCollectionParams(TestcaseBase):
         int_fields, _ = self.field_schema_wrap.init_field_schema(name=ct.default_int64_field_name, dtype=DataType.INT64)
         vec_fields, _ = self.field_schema_wrap.init_field_schema(name=ct.default_float_vec_field_name,
                                                                  dtype=DataType.FLOAT_VECTOR, dim=ct.default_dim)
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe."}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
         self.collection_schema_wrap.init_collection_schema([int_fields, vec_fields],
                                                            check_task=CheckTasks.err_res, check_items=error)
 
@@ -522,7 +523,7 @@ class TestCollectionParams(TestcaseBase):
         self._connect()
         fields = [cf.gen_int64_field(is_primary=False), cf.gen_float_field(is_primary=False),
                   cf.gen_float_vec_field(is_primary=False)]
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe."}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
         self.collection_schema_wrap.init_collection_schema(fields, check_task=CheckTasks.err_res, check_items=error)
 
     @pytest.mark.tags(CaseLabel.L2)
@@ -549,7 +550,7 @@ class TestCollectionParams(TestcaseBase):
         """
         self._connect()
         fields = [cf.gen_int64_field(), cf.gen_float_vec_field()]
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe."}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
         self.collection_schema_wrap.init_collection_schema(fields=fields, primary_field=primary_field,
                                                            check_task=CheckTasks.err_res, check_items=error)
 
@@ -577,7 +578,7 @@ class TestCollectionParams(TestcaseBase):
         self._connect()
         fake_field = cf.gen_unique_str()
         fields = [cf.gen_int64_field(), cf.gen_float_vec_field()]
-        error = {ct.err_code: 0, ct.err_msg: "Primary field must in dataframe."}
+        error = {ct.err_code: 1, ct.err_msg: "Schema must have a primary key field."}
 
         self.collection_schema_wrap.init_collection_schema(fields, primary_field=fake_field,
                                                            check_task=CheckTasks.err_res, check_items=error)
@@ -2439,12 +2440,7 @@ class TestLoadCollection(TestcaseBase):
         self.init_partition_wrap(collection_w, partition2)
         collection_w.load()
         partition_w.release()
-        error = {ct.err_code: 65538,
-                 ct.err_msg: 'failed to query: attempt #0: failed to search/query delegator 1'
-                             ' for channel by-dev-rootcoord-dml_0_444857573607352620v0: fail '
-                             'to Query, QueryNode ID = 1, reason=partition=[444857573607352660]:'
-                             ' partition not loaded: attempt #1: no available shard delegator '
-                             'found: service unavailable'}
+        error = {ct.err_code: 65538, ct.err_msg: 'partition not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition1],
                            check_task=CheckTasks.err_res, check_items=error)
         collection_w.release()
@@ -2469,12 +2465,7 @@ class TestLoadCollection(TestcaseBase):
         partition_w1.release()
         collection_w.release()
         partition_w1.load()
-        error = {ct.err_code: 65538,
-                 ct.err_msg: 'failed to query: attempt #0: failed to search/query delegator '
-                             '1 for channel by-dev-rootcoord-dml_14_444857573607352608v0: fail'
-                             ' to Query, QueryNode ID = 1, reason=partition=[444857573607352653]:'
-                             ' partition not loaded: attempt #1: no available shard delegator '
-                             'found: service unavailable'}
+        error = {ct.err_code: 65538, ct.err_msg: 'partition not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition2],
                            check_task=CheckTasks.err_res, check_items=error)
         partition_w2.load()
@@ -2532,10 +2523,7 @@ class TestLoadCollection(TestcaseBase):
         partition_w1.release()
         partition_w1.drop()
         partition_w2.release()
-        error = {ct.err_code: 65538, ct.err_msg: 'failed to query: attempt #0: failed to search/query delegator 1 '
-                                                 'for channel by-dev-rootcoord-xx: fail to Query, QueryNode ID = 1,'
-                                                 ' reason=partition=[ ]: partition not loaded: attempt #1: no '
-                                                 'available shard delegator found: service unavailable'}
+        error = {ct.err_code: 65538, ct.err_msg: 'partition not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition2],
                            check_task=CheckTasks.err_res, check_items=error)
         collection_w.load()
@@ -2614,8 +2602,7 @@ class TestLoadCollection(TestcaseBase):
         collection_wr.load()
         collection_wr.release()
         collection_wr.drop()
-        error = {ct.err_code: 100,
-                 ct.err_msg: "collection=444857573607352784: collection not found"}
+        error = {ct.err_code: 100, ct.err_msg: "collection not found"}
         collection_wr.load(check_task=CheckTasks.err_res, check_items=error)
         collection_wr.release(check_task=CheckTasks.err_res, check_items=error)
 
@@ -2632,8 +2619,7 @@ class TestLoadCollection(TestcaseBase):
         collection_wr.create_index(ct.default_float_vec_field_name, index_params=ct.default_flat_index)
         collection_wr.load()
         collection_wr.drop()
-        error = {ct.err_code: 100,
-                 ct.err_msg: "collection=444857573607351711: collection not found"}
+        error = {ct.err_code: 100, ct.err_msg: "collection not found"}
         collection_wr.release(check_task=CheckTasks.err_res, check_items=error)
 
     @pytest.mark.tags(CaseLabel.L1)
@@ -2776,7 +2762,8 @@ class TestLoadCollection(TestcaseBase):
         assert loading_progress == {'loading_progress': '100%'}
 
         # verify load different replicas thrown an exception
-        error = {ct.err_code: 5, ct.err_msg: f"Should release first then reload with the new number of replicas"}
+        error = {ct.err_code: 1100, ct.err_msg: "failed to load collection: can't change the replica number for "
+                                                "loaded collection: expected=1, actual=2: invalid parameter"}
         collection_w.load(replica_number=2, check_task=CheckTasks.err_res, check_items=error)
         one_replica, _ = collection_w.get_replicas()
         assert len(one_replica.groups) == 1
@@ -2862,7 +2849,7 @@ class TestLoadCollection(TestcaseBase):
                            check_task=CheckTasks.check_query_results,
                            check_items={'exp_res': df_2.iloc[:1, :1].to_dict('records')})
 
-        error = {ct.err_code: 1, ct.err_msg: f"not loaded into memory"}
+        error = {ct.err_code: 65538, ct.err_msg: "partition not loaded"}
         collection_w.query(expr=f"{ct.default_int64_field_name} in [0]",
                            partition_names=[ct.default_partition_name, ct.default_tag],
                            check_task=CheckTasks.err_res, check_items=error)
@@ -3016,7 +3003,7 @@ class TestLoadCollection(TestcaseBase):
         collection_w.get_replicas(check_task=CheckTasks.err_res,
                                   check_items={"err_code": 400,
                                                "err_msg": "failed to get replicas by collection: "
-                                                          "replica=444857573607352187: replica not found"})
+                                                          "replica not found"})
 
     @pytest.mark.tags(CaseLabel.L3)
     def test_count_multi_replicas(self):
@@ -3074,23 +3061,20 @@ class TestDescribeCollection(TestcaseBase):
         collection_w.create_index(ct.default_float_vec_field_name, index_params=ct.default_flat_index)
         description = \
             {'collection_name': c_name, 'auto_id': False, 'num_shards': ct.default_shards_num, 'description': '',
-             'fields': [{'field_id': 100, 'name': 'int64', 'description': '', 'type': 5,
-                         'params': {}, 'is_primary': True, 'element_type': 0,},
+             'fields': [{'field_id': 100, 'name': 'int64', 'description': '', 'type': 5, 'params': {},
+                         'is_primary': True, 'element_type': 0},
                         {'field_id': 101, 'name': 'float', 'description': '', 'type': 10, 'params': {},
-                         'element_type': 0,},
+                         'element_type': 0},
                         {'field_id': 102, 'name': 'varchar', 'description': '', 'type': 21,
-                         'params': {'max_length': 65535}, 'element_type': 0,},
+                         'params': {'max_length': 65535}, 'element_type': 0},
                         {'field_id': 103, 'name': 'json_field', 'description': '', 'type': 23, 'params': {},
-                         'element_type': 0,},
+                         'element_type': 0},
                         {'field_id': 104, 'name': 'float_vector', 'description': '', 'type': 101,
                          'params': {'dim': 128}, 'element_type': 0}],
              'aliases': [], 'consistency_level': 0, 'properties': [], 'num_partitions': 1}
         res = collection_w.describe()[0]
         del res['collection_id']
         log.info(res)
-        assert description['fields'] == res['fields'], description['aliases'] == res['aliases']
-        del description['fields'], res['fields'], description['aliases'], res['aliases']
-        del description['properties'], res['properties']
         assert description == res
 
 
@@ -3113,9 +3097,7 @@ class TestReleaseAdvanced(TestcaseBase):
         search_res, _ = collection_wr.search(vectors, default_search_field, default_search_params,
                                              default_limit, _async=True)
         collection_wr.release()
-        error = {ct.err_code: 65535, ct.err_msg: "failed to search: attempt #0: fail to get shard leaders from"
-                                                 " QueryCoord: collection=444818512783071471: collection not"
-                                                 " loaded: unrecoverable error"}
+        error = {ct.err_code: 65535, ct.err_msg: "collection not loaded"}
         collection_wr.search(vectors, default_search_field, default_search_params, default_limit,
                              check_task=CheckTasks.err_res, check_items=error)
 
@@ -3143,9 +3125,7 @@ class TestReleaseAdvanced(TestcaseBase):
                             [par_name],
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard leaders "
-                                                    "from QueryCoord: collection=444857573607353390: collection "
-                                                    "not loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L0)
     def test_release_indexed_collection_during_searching(self):
@@ -3166,9 +3146,7 @@ class TestReleaseAdvanced(TestcaseBase):
                             default_search_params, limit, default_search_exp,
                             [par_name], _async=True)
         collection_w.release()
-        error = {ct.err_code: 65535, ct.err_msg: "failed to search: attempt #0: fail to get shard leaders from "
-                                                 "QueryCoord: collection=444818512783071824: collection not "
-                                                 "loaded: unrecoverable error"}
+        error = {ct.err_code: 65535, ct.err_msg: "collection not loaded"}
         collection_w.search(vectors, default_search_field,
                             default_search_params, limit, default_search_exp,
                             [par_name],
@@ -3401,10 +3379,7 @@ class TestLoadPartition(TestcaseBase):
         partition_w1.load()
         partition_w1.load()
         error = {ct.err_code: 65538,
-                 ct.err_msg: 'failed to query: attempt #0: failed to search/query delegator 1 for'
-                             ' channel by-dev-rootcoord-dml_10_444857573607353001v0: fail to Query, '
-                             'QueryNode ID = 1, reason=partition=[444857573607353015]: partition not '
-                             'loaded: attempt #1: no available shard delegator found: service unavailable'}
+                 ct.err_msg: 'partition not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition2],
                            check_task=CheckTasks.err_res, check_items=error)
         collection_w.load()
@@ -3459,9 +3434,7 @@ class TestLoadPartition(TestcaseBase):
         partition_w2 = self.init_partition_wrap(collection_w, partition2)
         partition_w1.load()
         collection_w.release()
-        error = {ct.err_code: 65535, ct.err_msg: "failed to query: attempt #0: fail to get shard leaders from "
-                                                 "QueryCoord: collection=444818512783073123: collection not"
-                                                 " loaded: unrecoverable error"}
+        error = {ct.err_code: 65535, ct.err_msg: "collection not loaded"}
         collection_w.query(default_term_expr, partition_names=[partition1],
                            check_task=CheckTasks.err_res, check_items=error)
         partition_w1.load()
@@ -3501,8 +3474,7 @@ class TestLoadPartition(TestcaseBase):
         partition_w1.load()
         partition_w1.release()
         error = {ct.err_code: 65535,
-                 ct.err_msg: 'failed to query: attempt #0: fail to get shard leaders from QueryCoord: '
-                             'collection=444857573607352292: collection not loaded: unrecoverable error'}
+                 ct.err_msg: 'collection not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition1],
                            check_task=CheckTasks.err_res, check_items=error)
         partition_w1.load()
@@ -3566,8 +3538,7 @@ class TestLoadPartition(TestcaseBase):
         partition_w1.release()
         partition_w2.release()
         error = {ct.err_code: 65535,
-                 ct.err_msg: 'failed to query: attempt #0: fail to get shard leaders from QueryCoord:'
-                             ' collection=444857573607353795: collection not loaded: unrecoverable error'}
+                 ct.err_msg: 'collection not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition1, partition2],
                            check_task=CheckTasks.err_res, check_items=error)
         collection_w.load()
@@ -3694,9 +3665,7 @@ class TestLoadPartition(TestcaseBase):
         partition_w2.drop()
         partition_w1.release()
         error = {ct.err_code: 65535,
-                 ct.err_msg: 'failed to query: attempt #0: fail to get shard leaders from'
-                             ' QueryCoord: collection=444857573607353891: collection not'
-                             ' loaded: unrecoverable error'}
+                 ct.err_msg: 'collection not loaded'}
         collection_w.query(default_term_expr, partition_names=[partition1],
                            check_task=CheckTasks.err_res, check_items=error)
         partition_w1.load()
@@ -3849,7 +3818,7 @@ class TestCollectionString(TestcaseBase):
 class TestCollectionJSON(TestcaseBase):
     """
     ******************************************************************
-      The following cases are used to test about string 
+      The following cases are used to test about json
     ******************************************************************
     """
     @pytest.mark.tags(CaseLabel.L1)
@@ -3924,3 +3893,189 @@ class TestCollectionJSON(TestcaseBase):
         self.collection_wrap.init_collection(name=c_name, schema=schema,
                                              check_task=CheckTasks.check_collection_property,
                                              check_items={exp_name: c_name, exp_schema: schema})
+
+
+class TestCollectionARRAY(TestcaseBase):
+    """
+    ******************************************************************
+      The following cases are used to test about array
+    ******************************************************************
+    """
+
+    @pytest.mark.tags(CaseLabel.L2)
+    def test_collection_array_field_element_type_not_exist(self):
+        """
+        target: test create collection with ARRAY field without element type
+        method: create collection with one array field without element type
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(element_type=None)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res,
+                                  check_items={ct.err_code: 65535, ct.err_msg: "element data type None is not valid"})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    # @pytest.mark.skip("issue #27522")
+    @pytest.mark.parametrize("element_type", [1001, 'a', [], (), {1}, DataType.BINARY_VECTOR,
+                                              DataType.FLOAT_VECTOR, DataType.JSON, DataType.ARRAY])
+    def test_collection_array_field_element_type_invalid(self, element_type):
+        """
+        target: Create a field with invalid element_type
+        method: Create a field with invalid element_type
+                1. Type not in DataType: 1, 'a', ...
+                2. Type in DataType: binary_vector, float_vector, json_field, array_field
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(element_type=element_type)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        error = {ct.err_code: 65535, ct.err_msg: "element data type None is not valid"}
+        if element_type in ['a', {1}]:
+            error = {ct.err_code: 1, ct.err_msg: "Unexpected error"}
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res, check_items=error)
+
+    @pytest.mark.tags(CaseLabel.L2)
+    def test_collection_array_field_no_capacity(self):
+        """
+        target: Create a field without giving max_capacity
+        method: Create a field without giving max_capacity
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(max_capacity=None)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res,
+                                  check_items={ct.err_code: 65535,
+                                               ct.err_msg: "the value of max_capacity must be an integer"})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("max_capacity", [[], 'a', (), -1, 4097])
+    def test_collection_array_field_invalid_capacity(self, max_capacity):
+        """
+        target: Create a field with invalid max_capacity
+        method: Create a field with invalid max_capacity
+                1. Type invalid: [], 'a', ()
+                2. Value invalid: <0, >max_capacity(4096)
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(max_capacity=max_capacity)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res,
+                                  check_items={ct.err_code: 65535,
+                                               ct.err_msg: "the maximum capacity specified for a "
+                                                           "Array should be in (0, 4096]"})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    def test_collection_string_array_without_max_length(self):
+        """
+        target: Create string array without giving max length
+        method: Create string array without giving max length
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(element_type=DataType.VARCHAR)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res,
+                                  check_items={ct.err_code: 65535,
+                                               ct.err_msg: "type param(max_length) should be specified for "
+                                                           "varChar field of collection"})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("max_length", [[], 'a', (), -1, 65536])
+    def test_collection_string_array_max_length_invalid(self, max_length):
+        """
+        target: Create string array with invalid max length
+        method: Create string array with invalid max length
+                1. Type invalid: [], 'a', ()
+                2. Value invalid: <0, >max_length(65535)
+        expected: Raise exception
+        """
+        int_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        array_field = cf.gen_array_field(element_type=DataType.VARCHAR, max_length=max_length)
+        array_schema = cf.gen_collection_schema([int_field, vec_field, array_field])
+        self.init_collection_wrap(schema=array_schema, check_task=CheckTasks.err_res,
+                                  check_items={ct.err_code: 65535,
+                                               ct.err_msg: "the maximum length specified for a VarChar "
+                                                           "should be in (0, 65535]"})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    def test_collection_array_field_all_datatype(self):
+        """
+        target: test create collection with ARRAY field all data type
+        method: 1. Create field respectively: int8, int16, int32, int64, varchar, bool, float, double
+                2. Insert data respectively: int8, int16, int32, int64, varchar, bool, float, double
+        expected: Raise exception
+        """
+        # Create field respectively
+        nb = ct.default_nb
+        pk_field = cf.gen_int64_field(is_primary=True)
+        vec_field = cf.gen_float_vec_field()
+        int8_array = cf.gen_array_field(name="int8_array", element_type=DataType.INT8, max_capacity=nb)
+        int16_array = cf.gen_array_field(name="int16_array", element_type=DataType.INT16, max_capacity=nb)
+        int32_array = cf.gen_array_field(name="int32_array", element_type=DataType.INT32, max_capacity=nb)
+        int64_array = cf.gen_array_field(name="int64_array", element_type=DataType.INT64, max_capacity=nb)
+        bool_array = cf.gen_array_field(name="bool_array", element_type=DataType.BOOL, max_capacity=nb)
+        float_array = cf.gen_array_field(name="float_array", element_type=DataType.FLOAT, max_capacity=nb)
+        double_array = cf.gen_array_field(name="double_array", element_type=DataType.DOUBLE, max_capacity=nb)
+        string_array = cf.gen_array_field(name="string_array", element_type=DataType.VARCHAR, max_capacity=nb,
+                                          max_length=100)
+        array_schema = cf.gen_collection_schema([pk_field, vec_field, int8_array, int16_array, int32_array,
+                                                 int64_array, bool_array, float_array, double_array, string_array])
+        collection_w = self.init_collection_wrap(schema=array_schema,
+                                                 check_task=CheckTasks.check_collection_property,
+                                                 check_items={exp_schema: array_schema})
+
+        # check array in collection.describe()
+        res = collection_w.describe()[0]
+        log.info(res)
+        fields = [
+            {"field_id": 100, "name": "int64", "description": "", "type": 5, "params": {},
+             "element_type": 0, "is_primary": True},
+            {"field_id": 101, "name": "float_vector", "description": "", "type": 101,
+             "params": {"dim": ct.default_dim}, "element_type": 0},
+            {"field_id": 102, "name": "int8_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 2},
+            {"field_id": 103, "name": "int16_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 3},
+            {"field_id": 104, "name": "int32_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 4},
+            {"field_id": 105, "name": "int64_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 5},
+            {"field_id": 106, "name": "bool_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 1},
+            {"field_id": 107, "name": "float_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 10},
+            {"field_id": 108, "name": "double_array", "description": "", "type": 22,
+             "params": {"max_capacity": "2000"}, "element_type": 11},
+            {"field_id": 109, "name": "string_array", "description": "", "type": 22,
+             "params": {"max_length": "100", "max_capacity": "2000"}, "element_type": 21}
+        ]
+        assert res["fields"] == fields
+
+        # Insert data respectively
+        nb = 10
+        pk_values = [i for i in range(nb)]
+        float_vec = cf.gen_vectors(nb, ct.default_dim)
+        int8_values = [[numpy.int8(j) for j in range(nb)] for i in range(nb)]
+        int16_values = [[numpy.int16(j) for j in range(nb)] for i in range(nb)]
+        int32_values = [[numpy.int32(j) for j in range(nb)] for i in range(nb)]
+        int64_values = [[numpy.int64(j) for j in range(nb)] for i in range(nb)]
+        bool_values = [[numpy.bool_(j) for j in range(nb)] for i in range(nb)]
+        float_values = [[numpy.float32(j) for j in range(nb)] for i in range(nb)]
+        double_values = [[numpy.double(j) for j in range(nb)] for i in range(nb)]
+        string_values = [[str(j) for j in range(nb)] for i in range(nb)]
+        data = [pk_values, float_vec, int8_values, int16_values, int32_values, int64_values,
+                bool_values, float_values, double_values, string_values]
+        collection_w.insert(data)
+
+        # check insert successfully
+        collection_w.flush()
+        collection_w.num_entities == nb

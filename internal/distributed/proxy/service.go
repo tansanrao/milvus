@@ -61,6 +61,7 @@ import (
 	"github.com/milvus-io/milvus/internal/types"
 	"github.com/milvus-io/milvus/internal/util/componentutil"
 	"github.com/milvus-io/milvus/internal/util/dependency"
+	_ "github.com/milvus-io/milvus/internal/util/grpcclient"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/tracer"
 	"github.com/milvus-io/milvus/pkg/util"
@@ -629,6 +630,7 @@ func (s *Server) start() error {
 func (s *Server) Stop() error {
 	Params := &paramtable.Get().ProxyGrpcServerCfg
 	log.Debug("Proxy stop", zap.String("internal address", Params.GetInternalAddress()), zap.String("external address", Params.GetInternalAddress()))
+	s.proxy.UpdateStateCode(commonpb.StateCode_Abnormal)
 	var err error
 
 	if s.etcdCli != nil {
@@ -1108,4 +1110,8 @@ func (s *Server) ListDatabases(ctx context.Context, request *milvuspb.ListDataba
 
 func (s *Server) AllocTimestamp(ctx context.Context, req *milvuspb.AllocTimestampRequest) (*milvuspb.AllocTimestampResponse, error) {
 	return s.proxy.AllocTimestamp(ctx, req)
+}
+
+func (s *Server) ReplicateMessage(ctx context.Context, req *milvuspb.ReplicateMessageRequest) (*milvuspb.ReplicateMessageResponse, error) {
+	return s.proxy.ReplicateMessage(ctx, req)
 }

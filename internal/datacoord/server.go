@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/blang/semver/v4"
+	semver "github.com/blang/semver/v4"
 	"github.com/cockroachdb/errors"
 	"github.com/tikv/client-go/v2/txnkv"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -1063,7 +1063,7 @@ func (s *Server) stopServerLoop() {
 	s.serverLoopWg.Wait()
 }
 
-//func (s *Server) validateAllocRequest(collID UniqueID, partID UniqueID, channelName string) error {
+// func (s *Server) validateAllocRequest(collID UniqueID, partID UniqueID, channelName string) error {
 //	if !s.meta.HasCollection(collID) {
 //		return fmt.Errorf("can not find collection %d", collID)
 //	}
@@ -1076,7 +1076,7 @@ func (s *Server) stopServerLoop() {
 //		}
 //	}
 //	return fmt.Errorf("can not find channel %s", channelName)
-//}
+// }
 
 // loadCollectionFromRootCoord communicates with RootCoord and asks for collection information.
 // collection information will be added to server meta info.

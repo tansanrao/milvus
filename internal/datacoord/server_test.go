@@ -356,7 +356,7 @@ func TestFlush(t *testing.T) {
 
 		err := svr.channelManager.AddNode(1)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
 		resp, err := svr.Flush(context.TODO(), req)
@@ -1306,12 +1306,13 @@ func TestSaveBinlogPaths(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
+		ctx := context.Background()
+
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
-		ctx := context.Background()
 		resp, err := svr.SaveBinlogPaths(ctx, &datapb.SaveBinlogPathsRequest{
 			Base: &commonpb.MsgBase{
 				Timestamp: uint64(time.Now().Unix()),
@@ -1393,12 +1394,12 @@ func TestSaveBinlogPaths(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
+		ctx := context.Background()
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
-		ctx := context.Background()
 		resp, err := svr.SaveBinlogPaths(ctx, &datapb.SaveBinlogPathsRequest{
 			Base: &commonpb.MsgBase{
 				Timestamp: uint64(time.Now().Unix()),
@@ -1471,12 +1472,12 @@ func TestSaveBinlogPaths(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
+		ctx := context.Background()
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
-		ctx := context.Background()
 		resp, err := svr.SaveBinlogPaths(ctx, &datapb.SaveBinlogPathsRequest{
 			Base: &commonpb.MsgBase{
 				Timestamp: uint64(time.Now().Unix()),
@@ -1525,12 +1526,12 @@ func TestSaveBinlogPaths(t *testing.T) {
 			ID: 0,
 		})
 
+		ctx := context.Background()
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
-		ctx := context.Background()
 		resp, err := svr.SaveBinlogPaths(ctx, &datapb.SaveBinlogPathsRequest{
 			Base: &commonpb.MsgBase{
 				Timestamp: uint64(time.Now().Unix()),
@@ -1575,7 +1576,7 @@ func TestSaveBinlogPaths(t *testing.T) {
 		defer closeTestServer(t, svr)
 		err := svr.channelManager.AddNode(0)
 		require.Nil(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "ch1", CollectionID: 0})
 		require.Nil(t, err)
 		s := &datapb.SegmentInfo{
 			ID:            1,
@@ -1690,12 +1691,12 @@ func TestDropVirtualChannel(t *testing.T) {
 
 		svr.meta.AddSegment(context.TODO(), NewSegmentInfo(os))
 
+		ctx := context.Background()
 		err := svr.channelManager.AddNode(0)
 		require.Nil(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		require.Nil(t, err)
 
-		ctx := context.Background()
 		req := &datapb.DropVirtualChannelRequest{
 			Base: &commonpb.MsgBase{
 				Timestamp: uint64(time.Now().Unix()),
@@ -1765,7 +1766,7 @@ func TestDropVirtualChannel(t *testing.T) {
 
 		<-spyCh
 
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(ctx, &channel{Name: "ch1", CollectionID: 0})
 		require.Nil(t, err)
 
 		// resend
@@ -1779,7 +1780,7 @@ func TestDropVirtualChannel(t *testing.T) {
 		defer closeTestServer(t, svr)
 		err := svr.channelManager.AddNode(0)
 		require.Nil(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "ch1", CollectionID: 0})
 		require.Nil(t, err)
 
 		resp, err := svr.DropVirtualChannel(context.Background(), &datapb.DropVirtualChannelRequest{
@@ -1902,24 +1903,6 @@ func TestGetChannelSeekPosition(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDescribeCollection(t *testing.T) {
-	t.Run("TestNotExistCollections", func(t *testing.T) {
-		svr := newTestServer(t, nil)
-		defer closeTestServer(t, svr)
-		has, err := svr.handler.(*ServerHandler).HasCollection(context.TODO(), -1)
-		assert.NoError(t, err)
-		assert.False(t, has)
-	})
-
-	t.Run("TestExistCollections", func(t *testing.T) {
-		svr := newTestServer(t, nil)
-		defer closeTestServer(t, svr)
-		has, err := svr.handler.(*ServerHandler).HasCollection(context.TODO(), 1314)
-		assert.NoError(t, err)
-		assert.True(t, has)
-	})
 }
 
 func TestGetDataVChanPositions(t *testing.T) {
@@ -2462,12 +2445,7 @@ func TestShouldDropChannel(t *testing.T) {
 		Count:  1,
 	}, nil)
 
-	var crt rootCoordCreatorFunc = func(ctx context.Context, metaRoot string, etcdClient *clientv3.Client) (types.RootCoordClient, error) {
-		return myRoot, nil
-	}
-
-	opt := WithRootCoordCreator(crt)
-	svr := newTestServer(t, nil, opt)
+	svr := newTestServer(t, nil)
 	defer closeTestServer(t, svr)
 	schema := newTestSchema()
 	svr.meta.AddCollection(&collectionInfo{
@@ -2491,52 +2469,14 @@ func TestShouldDropChannel(t *testing.T) {
 		},
 	})
 
-	t.Run("channel name not in kv, collection not exist", func(t *testing.T) {
-		// myRoot.code = commonpb.ErrorCode_CollectionNotExists
-		myRoot.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:       merr.Status(merr.WrapErrCollectionNotFound(-1)),
-				CollectionID: -1,
-			}, nil).Once()
-		assert.True(t, svr.handler.CheckShouldDropChannel("ch99", -1))
+	t.Run("channel name not in kv ", func(t *testing.T) {
+		assert.False(t, svr.handler.CheckShouldDropChannel("ch99"))
 	})
 
-	t.Run("channel name not in kv, collection exist", func(t *testing.T) {
-		myRoot.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:       merr.Success(),
-				CollectionID: 0,
-			}, nil).Once()
-		assert.False(t, svr.handler.CheckShouldDropChannel("ch99", 0))
-	})
-
-	t.Run("collection name in kv, collection exist", func(t *testing.T) {
-		myRoot.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:       merr.Success(),
-				CollectionID: 0,
-			}, nil).Once()
-		assert.False(t, svr.handler.CheckShouldDropChannel("ch1", 0))
-	})
-
-	t.Run("collection name in kv, collection not exist", func(t *testing.T) {
-		myRoot.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:       merr.Status(merr.WrapErrCollectionNotFound(-1)),
-				CollectionID: -1,
-			}, nil).Once()
-		assert.True(t, svr.handler.CheckShouldDropChannel("ch1", -1))
-	})
-
-	t.Run("channel in remove flag, collection exist", func(t *testing.T) {
+	t.Run("channel in remove flag", func(t *testing.T) {
 		err := svr.meta.catalog.MarkChannelDeleted(context.TODO(), "ch1")
 		require.NoError(t, err)
-		myRoot.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:       merr.Success(),
-				CollectionID: 0,
-			}, nil).Once()
-		assert.True(t, svr.handler.CheckShouldDropChannel("ch1", 0))
+		assert.True(t, svr.handler.CheckShouldDropChannel("ch1"))
 	})
 }
 
@@ -2844,7 +2784,7 @@ func TestGetRecoveryInfo(t *testing.T) {
 
 		err = svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "vchan1", CollectionID: 0})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "vchan1", CollectionID: 0})
 		assert.NoError(t, err)
 
 		sResp, err := svr.SaveBinlogPaths(context.TODO(), binlogReq)
@@ -3926,7 +3866,7 @@ func TestDataCoord_Import(t *testing.T) {
 		})
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(svr.ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
 		resp, err := svr.Import(svr.ctx, &datapb.ImportTaskRequest{
@@ -3945,7 +3885,7 @@ func TestDataCoord_Import(t *testing.T) {
 
 		err := svr.channelManager.AddNode(0)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 0})
+		err = svr.channelManager.Watch(svr.ctx, &channel{Name: "ch1", CollectionID: 0})
 		assert.NoError(t, err)
 
 		resp, err := svr.Import(svr.ctx, &datapb.ImportTaskRequest{
@@ -4089,7 +4029,7 @@ func TestDataCoord_SaveImportSegment(t *testing.T) {
 		})
 		err := svr.channelManager.AddNode(110)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 100})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "ch1", CollectionID: 100})
 		assert.NoError(t, err)
 
 		status, err := svr.SaveImportSegment(context.TODO(), &datapb.SaveImportSegmentRequest{
@@ -4126,7 +4066,7 @@ func TestDataCoord_SaveImportSegment(t *testing.T) {
 
 		err := svr.channelManager.AddNode(110)
 		assert.NoError(t, err)
-		err = svr.channelManager.Watch(&channel{Name: "ch1", CollectionID: 100})
+		err = svr.channelManager.Watch(context.TODO(), &channel{Name: "ch1", CollectionID: 100})
 		assert.NoError(t, err)
 
 		status, err := svr.SaveImportSegment(context.TODO(), &datapb.SaveImportSegmentRequest{
@@ -4208,6 +4148,7 @@ var globalTestTikv = tikv.SetupLocalTxn()
 func newTestServer(t *testing.T, receiveCh chan any, opts ...Option) *Server {
 	var err error
 	paramtable.Get().Save(Params.CommonCfg.DataCoordTimeTick.Key, Params.CommonCfg.DataCoordTimeTick.GetValue()+strconv.Itoa(rand.Int()))
+	paramtable.Get().Save(Params.RocksmqCfg.CompressionTypes.Key, "0,0,0,0,0")
 	factory := dependency.NewDefaultFactory(true)
 	etcdCli, err := etcd.GetEtcdClient(
 		Params.EtcdCfg.UseEmbedEtcd.GetAsBool(),

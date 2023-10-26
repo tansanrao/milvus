@@ -11,7 +11,9 @@
 
 FROM nvidia/cuda:11.8.0-devel-ubuntu20.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 && \
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 ninja-build && \
     wget -qO- "https://cmake.org/files/v3.24/cmake-3.24.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local && \
     apt-get update && apt-get install -y --no-install-recommends \
     g++ gcc gfortran git make ccache libssl-dev zlib1g-dev zip unzip \
@@ -20,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-ce
     apt-get remove --purge -y && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install conan==1.58.0
+RUN pip3 install conan==1.61.0
 
 # Instal openblas
 # RUN wget https://github.com/xianyi/OpenBLAS/archive/v0.3.21.tar.gz && \
@@ -39,9 +41,9 @@ ENV GOPATH /go
 ENV GOROOT /usr/local/go
 ENV GO111MODULE on
 ENV PATH $GOPATH/bin:$GOROOT/bin:$PATH
-RUN mkdir -p /usr/local/go && wget -qO- "https://golang.org/dl/go1.20.4.linux-amd64.tar.gz" | tar --strip-components=1 -xz -C /usr/local/go && \
+RUN mkdir -p /usr/local/go && wget -qO- "https://go.dev/dl/go1.20.7.linux-$TARGETARCH.tar.gz" | tar --strip-components=1 -xz -C /usr/local/go && \
     mkdir -p "$GOPATH/src" "$GOPATH/bin" && \
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${GOPATH}/bin v1.46.2 && \
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${GOROOT}/bin v1.46.2 && \
     # export GO111MODULE=on && go get github.com/quasilyte/go-ruleguard/cmd/ruleguard@v0.2.1 && \
     go install github.com/ramya-rao-a/go-outline@latest && \
     go install golang.org/x/tools/gopls@latest && \

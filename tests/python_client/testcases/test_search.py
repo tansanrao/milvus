@@ -1,3 +1,4 @@
+import numpy as np
 from pymilvus.orm.types import CONSISTENCY_STRONG, CONSISTENCY_BOUNDED, CONSISTENCY_SESSION, CONSISTENCY_EVENTUALLY
 from common.constants import *
 from utils.util_pymilvus import *
@@ -252,13 +253,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_params, default_limit, default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65538,
-                                         "err_msg": 'failed to search: attempt #0: failed to search/query'
-                                                    ' delegator 1 for channel by-dev-rootcoord-dml_1_4'
-                                                    '44857573610608343v0: fail to Search, QueryNode ID=1, '
-                                                    'reason=worker(1) query failed: UnknownError: Assert '
-                                                    '"field_meta.get_sizeof() == element.line_sizeof_" '
-                                                    'at /go/src/github.com/milvus-io/milvus/internal/core/'
-                                                    'src/query/Plan.cpp:52'})
+                                         "err_msg": 'failed to search'})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_param_invalid_field_type(self, get_invalid_fields_type):
@@ -273,9 +268,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
         invalid_search_field = get_invalid_fields_type
         log.info("test_search_param_invalid_field_type: searching with invalid field: %s"
                  % invalid_search_field)
-        error1 = {"err_code": 65535, "err_msg": "failed to search: attempt #0: fail to get shard leaders from "
-                                                 "QueryCoord: collection=444857573608382363: collection not "
-                                                 "loaded: unrecoverable error"}
+        error1 = {"err_code": 65535, "err_msg": "collection not loaded"}
         error2 = {"err_code": 1, "err_msg": f"`anns_field` value {get_invalid_fields_type} is illegal"}
         error = error2 if get_invalid_fields_type in [[], 1, [1, "2", 3], (1,), {1: 1}] else error1
         collection_w.search(vectors[:default_nq], invalid_search_field, default_search_params,
@@ -319,9 +312,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_limit, default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard leaders "
-                                                    "from QueryCoord: collection=444818512783277152: collection "
-                                                    "not loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("index, params",
@@ -344,11 +335,6 @@ class TestCollectionSearchInvalid(TestcaseBase):
         collection_w.load()
         # 3. search
         invalid_search_params = cf.gen_invalid_search_params_type()
-        message = ("failed to search: attempt #0: failed to search/query delegator 1 for channel "
-                   "by-dev-rootcoord-dml_8_444857573608382882v0: fail to Search, QueryNode ID=1, "
-                   "reason=worker(1) query failed: UnknownError:  => failed to search: invalid param "
-                   "in json: invalid json key invalid_key: attempt #1: no available shard delegator "
-                   "found: service unavailable")
         for invalid_search_param in invalid_search_params:
             if index == invalid_search_param["index_type"]:
                 search_params = {"metric_type": "L2",
@@ -358,7 +344,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                                     default_search_exp,
                                     check_task=CheckTasks.err_res,
                                     check_items={"err_code": 65538,
-                                                 "err_msg": message})
+                                                 "err_msg": "failed to search"})
 
     @pytest.mark.skip("not fixed yet")
     @pytest.mark.tags(CaseLabel.L1)
@@ -565,6 +551,63 @@ class TestCollectionSearchInvalid(TestcaseBase):
                                                          "err_msg": "failed to create query plan: cannot parse "
                                                                     "expression: %s" % expression})
 
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_search_with_expression_invalid_array_one(self):
+        """
+        target: test search with invalid array expressions
+        method: test search with invalid array expressions:
+                the order of array > the length of array
+        expected: searched successfully with correct limit(topK)
+        """
+        # 1. create a collection
+        nb = ct.default_nb
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+        data = cf.get_row_data_by_schema(schema=schema)
+        data[1][ct.default_int32_array_field_name] = [1]
+        collection_w.insert(data)
+        collection_w.create_index("float_vector", ct.default_index)
+        collection_w.load()
+
+        # 2. search
+        expression = "int32_array[101] > 0"
+        msg = ("failed to search: attempt #0: failed to search/query delegator 1 for channel "
+               "by-dev-rootcoord-dml_: fail to Search, QueryNode ID=1, reason=worker(1) query"
+               " failed: UnknownError: Assert \")index >= 0 && index < length_\" at /go/src/"
+               "github.com/milvus-io/milvus/internal/core/src/common/Array.h:454 => index out"
+               " of range, index=101, length=100: attempt #1: no available shard delegator "
+               "found: service unavailable")
+        collection_w.search(vectors[:default_nq], default_search_field,
+                            default_search_params, nb, expression,
+                            check_task=CheckTasks.err_res,
+                            check_items={ct.err_code: 65538,
+                                         ct.err_msg: msg})
+
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_search_with_expression_invalid_array_two(self):
+        """
+        target: test search with invalid array expressions
+        method: test search with invalid array expressions
+        expected: searched successfully with correct limit(topK)
+        """
+        # 1. create a collection
+        nb = ct.default_nb
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+        data = cf.get_row_data_by_schema(schema=schema)
+        collection_w.insert(data)
+        collection_w.create_index("float_vector", ct.default_index)
+        collection_w.load()
+
+        # 2. search
+        expression = "int32_array[0] - 1 < 1"
+        error = {ct.err_code: 65535,
+                 ct.err_msg: f"failed to create query plan: cannot parse expression: {expression}, "
+                             f"error: LessThan is not supported in execution backend"}
+        collection_w.search(vectors[:default_nq], default_search_field,
+                            default_search_params, nb, expression,
+                            check_task=CheckTasks.err_res, check_items=error)
+
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_partition_invalid_type(self, get_invalid_partition):
         """
@@ -624,9 +667,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_params, default_limit, default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard leaders from"
-                                                    " QueryCoord: collection=444818512783277916: collection not"
-                                                    " loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_release_partition(self):
@@ -654,9 +695,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             [par_name],
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard "
-                                                    "leaders from QueryCoord: collection=444857573608588384: "
-                                                    "collection not loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.skip("enable this later using session/strong consistency")
     @pytest.mark.tags(CaseLabel.L1)
@@ -790,17 +829,12 @@ class TestCollectionSearchInvalid(TestcaseBase):
         # 3. search
         log.info("test_search_different_index_invalid_params: Searching after "
                  "creating index-%s" % index)
-        msg = ("failed to search: attempt #0: failed to search/query delegator 1 for channel "
-               "by-dev-rootcoord-dml_10_444857573608789760v0: fail to Search, QueryNode ID=1, "
-               "reason=worker(1) query failed: UnknownError: [json.exception.type_error.302] "
-               "type must be number, but is string: attempt #1: no available shard delegator "
-               "found: service unavailable")
         search_params = cf.gen_invalid_search_param(index)
         collection_w.search(vectors, default_search_field,
                             search_params[0], default_limit,
                             default_search_exp,
                             check_task=CheckTasks.err_res,
-                            check_items={"err_code": 65538, "err_msg": msg})
+                            check_items={"err_code": 65538, "err_msg": "failed to search"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_index_partition_not_existed(self):
@@ -821,6 +855,33 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
                                          "err_msg": "partition name %s not found" % partition_name})
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("reorder_k", [100])
+    def test_search_scann_with_invalid_reorder_k(self, reorder_k):
+        """
+        target: test search with invalid nq
+        method: search with invalid nq
+        expected: raise exception and report the error
+        """
+        # initialize with data
+        collection_w = self.init_collection_general(prefix, True, is_index=False)[0]
+        index_params = {"index_type": "SCANN", "metric_type": "L2", "params": {"nlist": 1024}}
+        collection_w.create_index(default_search_field, index_params)
+        # search
+        search_params = {"metric_type": "L2", "params": {"nprobe": 10, "reorder_k": reorder_k}}
+        collection_w.load()
+        collection_w.search(vectors[:default_nq], default_search_field,
+                            search_params, reorder_k + 1,
+                            check_task=CheckTasks.err_res,
+                            check_items={"err_code": 65538,
+                                         "err_msg": "failed to search: attempt #0: failed to search/query "
+                                                    "delegator 1 for channel by-dev-rootcoord-dml_12_44501"
+                                                    "8735380972010v0: fail to Search, QueryNode ID=1, reaso"
+                                                    "n=worker(1) query failed: UnknownError:  => failed to "
+                                                    "search: out of range in json: reorder_k(100) should be"
+                                                    " larger than k(101): attempt #1: no available shard de"
+                                                    "legator found: service unavailable"})
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("nq", [16385])
@@ -879,14 +940,11 @@ class TestCollectionSearchInvalid(TestcaseBase):
         # 2. search and assert
         query_raw_vector, binary_vectors = cf.gen_binary_vectors(2, default_dim)
         search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
-        msg = ("failed to search: attempt #0: failed to search/query delegator 1 for channel "
-               "by-dev-rootcoord-dml_4_444857573608384003v0: fail to Search, QueryNode ID=1, "
-               "reason=collection:444857573608384003, metric type not match: expected=JACCARD, "
-               "actual=L2: invalid parameter: attempt #1: no available shard delegator found: service unavailable")
         collection_w.search(binary_vectors[:default_nq], "binary_vector",
                             search_params, default_limit, "int64 >= 0",
                             check_task=CheckTasks.err_res,
-                            check_items={"err_code": 65538, "err_msg": msg})
+                            check_items={"err_code": 65538, "err_msg": "metric type not match: "
+                                                                       "expected=JACCARD, actual=L2"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_with_output_fields_not_exist(self):
@@ -1063,9 +1121,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard "
-                                                    "leaders from QueryCoord: collection=444857573608586463:"
-                                                    " collection not loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_range_search_invalid_range_filter(self, get_invalid_range_search_paras):
@@ -1087,9 +1143,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get"
-                                                    " shard leaders from QueryCoord: collection=444857573608586774"
-                                                    ": collection not loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L1)
     def test_range_search_invalid_radius_range_filter_L2(self):
@@ -1109,9 +1163,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard leaders from "
-                                                    "QueryCoord: collection=444818512783278558: collection not loaded:"
-                                                    " unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L1)
     def test_range_search_invalid_radius_range_filter_IP(self):
@@ -1132,9 +1184,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             default_search_exp,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "failed to search: attempt #0: fail to get shard leaders from "
-                                                    "QueryCoord: collection=444818512783279076: collection not "
-                                                    "loaded: unrecoverable error"})
+                                         "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.skip(reason="annoy not supported any more")
@@ -1257,17 +1307,13 @@ class TestCollectionSearchInvalid(TestcaseBase):
         # delete entity
         expr = 'float >= int64'
         # search with id 0 vectors
-        msg = ("failed to search: attempt #0: failed to search/query delegator 3 for channel by-dev-rootcoord-dml_15_"
-               "444818512783279330v0: fail to Search, QueryNode ID=3, reason=worker(3) query failed: UnknownError:  "
-               "=> unsupported right datatype JSON of compare expr: attempt #1: no available shard delegator found: s"
-               "ervice unavailable")
         vectors = [[random.random() for _ in range(default_dim)] for _ in range(default_nq)]
         collection_w.search(vectors[:default_nq], default_search_field,
                             default_search_params, default_limit,
                             expr,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65538,
-                                         "err_msg": msg})
+                                         "err_msg": "UnknownError: unsupported right datatype JSON of compare expr"})
 
 
 class TestCollectionSearch(TestcaseBase):
@@ -1477,8 +1523,7 @@ class TestCollectionSearch(TestcaseBase):
             insert_res, _ = collection_w.insert(insert_data[0])
             insert_ids.extend(insert_res.primary_keys)
         # search
-        vectors = [[random.random() for _ in range(dim)]
-                   for _ in range(default_nq)]
+        vectors = [[random.random() for _ in range(dim)] for _ in range(default_nq)]
         search_res, _ = collection_w.search(vectors[:nq], default_search_field,
                                             default_search_params, default_limit,
                                             default_search_exp, _async=_async,
@@ -3032,6 +3077,57 @@ class TestCollectionSearch(TestcaseBase):
             assert set(ids).issubset(filter_ids_set)
 
     @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("expression", cf.gen_array_field_expressions())
+    def test_search_with_expression_array(self, expression, _async, enable_dynamic_field):
+        """
+        target: test search with different expressions
+        method: test search with different expressions
+        expected: searched successfully with correct limit(topK)
+        """
+        # 1. create a collection
+        nb = ct.default_nb
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema, enable_dynamic_field=enable_dynamic_field)
+
+        # 2. insert data
+        array_length = 10
+        data = []
+        for i in range(nb):
+            arr = {ct.default_int64_field_name: i,
+                   ct.default_float_vec_field_name: cf.gen_vectors(1, ct.default_dim)[0],
+                   ct.default_int32_array_field_name: [np.int32(i) for i in range(array_length)],
+                   ct.default_float_array_field_name: [np.float32(i) for i in range(array_length)],
+                   ct.default_string_array_field_name: [str(i) for i in range(array_length)]}
+            data.append(arr)
+        collection_w.insert(data)
+
+        # 3. filter result with expression in collection
+        expression = expression.replace("&&", "and").replace("||", "or")
+        filter_ids = []
+        for i in range(nb):
+            int32_array = data[i][ct.default_int32_array_field_name]
+            float_array = data[i][ct.default_float_array_field_name]
+            string_array = data[i][ct.default_string_array_field_name]
+            if not expression or eval(expression):
+                filter_ids.append(i)
+
+        # 4. create index
+        collection_w.create_index("float_vector", ct.default_index)
+        collection_w.load()
+
+        # 5. search with expression
+        log.info("test_search_with_expression: searching with expression: %s" % expression)
+        search_res, _ = collection_w.search(vectors[:default_nq], default_search_field,
+                                            default_search_params, nb, expression, _async=_async)
+        if _async:
+            search_res.done()
+            search_res = search_res.result()
+
+        for hits in search_res:
+            ids = hits.ids
+            assert set(ids) == set(filter_ids)
+
+    @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.xfail(reason="issue 24514")
     @pytest.mark.parametrize("expression", cf.gen_normal_expressions_field(default_float_field_name))
     def test_search_with_expression_auto_id(self, dim, expression, _async, enable_dynamic_field):
@@ -3123,9 +3219,8 @@ class TestCollectionSearch(TestcaseBase):
         if _async:
             res.done()
             res = res.result()
-        assert len(res[0][0].entity._row_data) != 0
         assert (default_int64_field_name and default_float_field_name and default_bool_field_name) \
-            in res[0][0].entity._row_data
+            in res[0][0].fields
 
     @pytest.mark.tags(CaseLabel.L1)
     @pytest.mark.parametrize("field", ct.all_scalar_data_types[:3])
@@ -3385,7 +3480,7 @@ class TestCollectionSearch(TestcaseBase):
                                       output_fields=[binary_field_name])[0]
 
             # 4. check the result vectors should be equal to the inserted
-            assert res[0][0].entity.binary_vector == [data[binary_field_name][res[0][0].id]]
+            assert res[0][0].entity.binary_vector == data[binary_field_name][res[0][0].id]
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("metrics", ct.structure_metrics)
@@ -3418,7 +3513,7 @@ class TestCollectionSearch(TestcaseBase):
                                   output_fields=[binary_field_name])[0]
 
         # 4. check the result vectors should be equal to the inserted
-        assert res[0][0].entity.binary_vector == [data[binary_field_name][res[0][0].id]]
+        assert res[0][0].entity.binary_vector == data[binary_field_name][res[0][0].id]
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("dim", [32, 128, 768])
@@ -3977,8 +4072,7 @@ class TestCollectionSearch(TestcaseBase):
         collection_w.insert(data)
 
         # 3. search with param ignore_growing=True
-        search_params = {"metric_type": "COSINE", "params": {
-            "nprobe": 10}, "ignore_growing": True}
+        search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}, "ignore_growing": True}
         vector = [[random.random() for _ in range(dim)] for _ in range(nq)]
         res = collection_w.search(vector[:nq], default_search_field, search_params, default_limit,
                                   default_search_exp, _async=_async,
@@ -4209,6 +4303,58 @@ class TestCollectionSearch(TestcaseBase):
         assert res[ct.default_double_field_name] == 3.1415
         assert res[ct.default_bool_field_name] is False
         assert res[ct.default_string_field_name] == "abc"
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("index, params", zip(ct.all_index_types[1:4], ct.default_index_params[1:4]))
+    def test_search_repeatedly_ivf_index_same_limit(self, index, params):
+        """
+        target: test create collection repeatedly
+        method: search twice, check the results is the same
+        expected: search results are as expected
+        """
+        nb = 5000
+        limit = 30
+        # 1. create a collection
+        collection_w = self.init_collection_general(prefix, True, nb, is_index=False)[0]
+
+        # 2. insert data again
+        index_params = {"metric_type": "COSINE", "index_type": index, "params": params}
+        collection_w.create_index(default_search_field, index_params)
+
+        # 3. search with param ignore_growing=True
+        collection_w.load()
+        search_params = cf.gen_search_param(index, "COSINE")[0]
+        vector = [[random.random() for _ in range(default_dim)] for _ in range(default_nq)]
+        res1 = collection_w.search(vector[:default_nq], default_search_field, search_params, limit)[0]
+        res2 = collection_w.search(vector[:default_nq], default_search_field, search_params, limit)[0]
+        for i in range(default_nq):
+            res1[i].ids == res2[i].ids
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("index, params", zip(ct.all_index_types[1:4], ct.default_index_params[1:4]))
+    def test_search_repeatedly_ivf_index_different_limit(self, index, params):
+        """
+        target: test create collection repeatedly
+        method: search twice, check the results is the same
+        expected: search results are as expected
+        """
+        nb = 5000
+        limit = random.randint(10, 100)
+        # 1. create a collection
+        collection_w = self.init_collection_general(prefix, True, nb, is_index=False)[0]
+
+        # 2. insert data again
+        index_params = {"metric_type": "COSINE", "index_type": index, "params": params}
+        collection_w.create_index(default_search_field, index_params)
+
+        # 3. search with param ignore_growing=True
+        collection_w.load()
+        search_params = cf.gen_search_param(index, "COSINE")[0]
+        vector = [[random.random() for _ in range(default_dim)] for _ in range(default_nq)]
+        res1 = collection_w.search(vector, default_search_field, search_params, limit)[0]
+        res2 = collection_w.search(vector, default_search_field, search_params, limit * 2)[0]
+        for i in range(default_nq):
+            res1[i].ids == res2[i].ids[limit:]
 
 
 class TestSearchBase(TestcaseBase):
@@ -5967,8 +6113,7 @@ class TestSearchDiskann(TestcaseBase):
                             output_fields=output_fields,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65538,
-                                         "err_msg": "failed to search: attempt #0: failed to search/query "
-                                                    "delegator 1 for channel by-dev-.."})
+                                         "err_msg": "failed to search"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_with_diskann_with_string_pk(self, dim, enable_dynamic_field):
@@ -6837,6 +6982,9 @@ class TestCollectionRangeSearch(TestcaseBase):
             search_param["params"]["range_filter"] = 0
             if index.startswith("IVF_"):
                 search_param["params"].pop("nprobe")
+            if index == "SCANN":
+                search_param["params"].pop("nprobe")
+                search_param["params"].pop("reorder_k")
             log.info("Searching with search params: {}".format(search_param))
             collection_w.search(vectors[:default_nq], default_search_field,
                                 search_param, default_limit,
@@ -7290,8 +7438,7 @@ class TestCollectionRangeSearch(TestcaseBase):
         if _async:
             res.done()
             res = res.result()
-        assert len(res[0][0].entity._row_data) != 0
-        assert default_int64_field_name in res[0][0].entity._row_data
+        assert default_int64_field_name in res[0][0].fields
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_range_search_concurrent_multi_threads(self, nb, nq, dim, auto_id, _async):
@@ -8732,9 +8879,7 @@ class TestCollectionLoadOperation(TestcaseBase):
         collection_w.search(vectors[:1], field_name, default_search_params, 200,
                             check_task=CheckTasks.err_res,
                             check_items={ct.err_code: 65535,
-                                         ct.err_msg: "failed to search: attempt #0: fail to get shard leaders "
-                                                     "from QueryCoord: collection=444857573614268173: "
-                                                     "collection not loaded: unrecoverable error"})
+                                         ct.err_msg: "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.xfail(reason="issue #24446")
@@ -8988,6 +9133,144 @@ class TestCollectionSearchJSON(TestcaseBase):
                                 check_task=CheckTasks.check_search_results,
                                 check_items={"nq": default_nq,
                                              "limit": limit // 2})
+
+    @pytest.mark.tags(CaseLabel.L1)
+    @pytest.mark.parametrize("expr_prefix", ["array_contains", "ARRAY_CONTAINS"])
+    def test_search_expr_array_contains(self, expr_prefix):
+        """
+        target: test query with expression using json_contains
+        method: query with expression using json_contains
+        expected: succeed
+        """
+        # 1. create a collection
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+
+        # 2. insert data
+        string_field_value = [[str(j) for j in range(i, i+3)] for i in range(ct.default_nb)]
+        data = cf.gen_array_dataframe_data()
+        data[ct.default_string_array_field_name] = string_field_value
+        collection_w.insert(data)
+        collection_w.create_index(ct.default_float_vec_field_name, {})
+
+        # 3. search
+        collection_w.load()
+        expression = f"{expr_prefix}({ct.default_string_array_field_name}, '1000')"
+        res = collection_w.search(vectors[:default_nq], default_search_field, {},
+                                  limit=ct.default_nb, expr=expression)[0]
+        exp_ids = cf.assert_json_contains(expression, string_field_value)
+        assert set(res[0].ids) == set(exp_ids)
+
+    @pytest.mark.tags(CaseLabel.L1)
+    @pytest.mark.parametrize("expr_prefix", ["array_contains", "ARRAY_CONTAINS"])
+    def test_search_expr_not_array_contains(self, expr_prefix):
+        """
+        target: test query with expression using json_contains
+        method: query with expression using json_contains
+        expected: succeed
+        """
+        # 1. create a collection
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+
+        # 2. insert data
+        string_field_value = [[str(j) for j in range(i, i + 3)] for i in range(ct.default_nb)]
+        data = cf.gen_array_dataframe_data()
+        data[ct.default_string_array_field_name] = string_field_value
+        collection_w.insert(data)
+        collection_w.create_index(ct.default_float_vec_field_name, {})
+
+        # 3. search
+        collection_w.load()
+        expression = f"not {expr_prefix}({ct.default_string_array_field_name}, '1000')"
+        res = collection_w.search(vectors[:default_nq], default_search_field, {},
+                                  limit=ct.default_nb, expr=expression)[0]
+        exp_ids = cf.assert_json_contains(expression, string_field_value)
+        assert set(res[0].ids) == set(exp_ids)
+
+    @pytest.mark.tags(CaseLabel.L1)
+    @pytest.mark.parametrize("expr_prefix", ["array_contains_all", "ARRAY_CONTAINS_ALL"])
+    def test_search_expr_array_contains_all(self, expr_prefix):
+        """
+        target: test query with expression using json_contains
+        method: query with expression using json_contains
+        expected: succeed
+        """
+        # 1. create a collection
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+
+        # 2. insert data
+        string_field_value = [[str(j) for j in range(i, i + 3)] for i in range(ct.default_nb)]
+        data = cf.gen_array_dataframe_data()
+        data[ct.default_string_array_field_name] = string_field_value
+        collection_w.insert(data)
+        collection_w.create_index(ct.default_float_vec_field_name, {})
+
+        # 3. search
+        collection_w.load()
+        expression = f"{expr_prefix}({ct.default_string_array_field_name}, ['1000'])"
+        res = collection_w.search(vectors[:default_nq], default_search_field, {},
+                                  limit=ct.default_nb, expr=expression)[0]
+        exp_ids = cf.assert_json_contains(expression, string_field_value)
+        assert set(res[0].ids) == set(exp_ids)
+
+    @pytest.mark.tags(CaseLabel.L1)
+    @pytest.mark.parametrize("expr_prefix", ["array_contains_any", "ARRAY_CONTAINS_ANY",
+                                             "not array_contains_any", "not ARRAY_CONTAINS_ANY"])
+    def test_search_expr_array_contains_any(self, expr_prefix):
+        """
+        target: test query with expression using json_contains
+        method: query with expression using json_contains
+        expected: succeed
+        """
+        # 1. create a collection
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+
+        # 2. insert data
+        string_field_value = [[str(j) for j in range(i, i + 3)] for i in range(ct.default_nb)]
+        data = cf.gen_array_dataframe_data()
+        data[ct.default_string_array_field_name] = string_field_value
+        collection_w.insert(data)
+        collection_w.create_index(ct.default_float_vec_field_name, {})
+
+        # 3. search
+        collection_w.load()
+        expression = f"{expr_prefix}({ct.default_string_array_field_name}, ['1000'])"
+        res = collection_w.search(vectors[:default_nq], default_search_field, {},
+                                  limit=ct.default_nb, expr=expression)[0]
+        exp_ids = cf.assert_json_contains(expression, string_field_value)
+        assert set(res[0].ids) == set(exp_ids)
+
+    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.parametrize("expr_prefix", ["array_contains_all", "ARRAY_CONTAINS_ALL",
+                                             "array_contains_any", "ARRAY_CONTAINS_ANY"])
+    def test_search_expr_array_contains_invalid(self, expr_prefix):
+        """
+        target: test query with expression using json_contains
+        method: query with expression using json_contains(a, b) b not list
+        expected: report error
+        """
+        # 1. create a collection
+        schema = cf.gen_array_collection_schema()
+        collection_w = self.init_collection_wrap(schema=schema)
+
+        # 2. insert data
+        data = cf.gen_array_dataframe_data()
+        collection_w.insert(data)
+        collection_w.create_index(ct.default_float_vec_field_name, {})
+
+        # 3. search
+        collection_w.load()
+        expression = f"{expr_prefix}({ct.default_string_array_field_name}, '1000')"
+        collection_w.search(vectors[:default_nq], default_search_field, {},
+                            limit=ct.default_nb, expr=expression,
+                            check_task=CheckTasks.err_res,
+                            check_items={ct.err_code: 65535,
+                                         ct.err_msg: "failed to create query plan: cannot parse "
+                                                     "expression: %s, error: contains_any operation "
+                                                     "element must be an array" % expression})
 
 
 class TestSearchIterator(TestcaseBase):

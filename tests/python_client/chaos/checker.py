@@ -158,7 +158,7 @@ class ResultAnalyzer:
             data_before_chaos = group[group['start_time'] < chaos_start_time].agg(
                 {'success_rate': 'mean', 'failed_count': 'sum', 'success_count': 'sum'})
             data_during_chaos = group[
-                (group['start_time'] >= chaos_start_time) & (group['start_time'] <= recovery_time)].agg(
+                (group['start_time'] >= chaos_start_time) & (group['start_time'] <= chaos_end_time)].agg(
                 {'success_rate': 'mean', 'failed_count': 'sum', 'success_count': 'sum'})
             data_after_chaos = group[group['start_time'] > recovery_time].agg(
                 {'success_rate': 'mean', 'failed_count': 'sum', 'success_count': 'sum'})
@@ -342,7 +342,7 @@ class Checker:
         checker_name = self.__class__.__name__
         checkers_result = f"{checker_name}, succ_rate: {succ_rate:.2f}, total: {total:03d}, average_time: {average_time:.4f}, max_time: {max_time:.4f}, min_time: {min_time:.4f}"
         log.info(checkers_result)
-        log.info(f"{checker_name} rsp times: {self.rsp_times}")
+        log.debug(f"{checker_name} rsp times: {self.rsp_times}")
         if len(self.fail_records) > 0:
             log.info(f"{checker_name} failed at {self.fail_records}")
         return checkers_result
@@ -486,6 +486,7 @@ class InsertFlushChecker(Checker):
                     self.initial_entities += constants.DELTA_PER_INS
                 else:
                     self._fail += 1
+                sleep(constants.WAIT_PER_OP * 6)
 
 
 class FlushChecker(Checker):
@@ -520,7 +521,7 @@ class FlushChecker(Checker):
     def keep_running(self):
         while self._keep_running:
             self.run_task()
-            sleep(constants.WAIT_PER_OP / 10)
+            sleep(constants.WAIT_PER_OP * 6)
 
 
 class InsertChecker(Checker):
@@ -626,7 +627,7 @@ class CreateChecker(Checker):
     def keep_running(self):
         while self._keep_running:
             self.run_task()
-            sleep(constants.WAIT_PER_OP / 10)
+            sleep(constants.WAIT_PER_OP)
 
 
 class IndexChecker(Checker):
@@ -662,7 +663,7 @@ class IndexChecker(Checker):
     def keep_running(self):
         while self._keep_running:
             self.run_task()
-            sleep(constants.WAIT_PER_OP / 10)
+            sleep(constants.WAIT_PER_OP * 6)
 
 
 class QueryChecker(Checker):
@@ -854,7 +855,7 @@ class DropChecker(Checker):
                     self.c_wrap.init_collection(name=c_name)
                 except Exception as e:
                     log.error(f"Failed to init new collection: {e}")
-            sleep(constants.WAIT_PER_OP / 10)
+            sleep(constants.WAIT_PER_OP)
 
 
 class LoadBalanceChecker(Checker):
