@@ -15,8 +15,8 @@ ARG TARGETARCH
 
 RUN if [ "$TARGETARCH" = "arm64" ]; then apt-get update && apt-get install -y ninja-build; fi
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 \
-    g++ gcc gdb gdbserver git make ccache libssl-dev zlib1g-dev zip unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 libndctl-dev libdaxctl-dev \
+    g++ gcc gdb gdbserver git make ccache libssl-dev zlib1g-dev zip unzip pandoc \
     clang-format-10 clang-tidy-10 lcov libtool m4 autoconf automake python3 python3-pip \
     pkg-config uuid-dev libaio-dev  && \
     apt-get remove --purge -y && \
@@ -36,6 +36,10 @@ RUN mkdir -p /usr/local/go && wget -qO- "https://go.dev/dl/go1.20.7.linux-$TARGE
     mkdir -p "$GOPATH/src" "$GOPATH/bin" && \
     go clean --modcache && \
     chmod -R 777 "$GOPATH" && chmod -R a+w $(go env GOTOOLDIR)
+
+# Install PMDK
+RUN git clone https://github.com/pmem/pmdk && cd pmdk && git checkout tags/2.0.0 && make EXTRA_CFLAGS="-Wno-error" && make install
+
 
 # refer: https://code.visualstudio.com/docs/remote/containers-advanced#_avoiding-extension-reinstalls-on-container-rebuild
 RUN mkdir -p /home/milvus/.vscode-server/extensions \
