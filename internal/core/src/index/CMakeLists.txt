@@ -22,4 +22,11 @@ add_library(milvus_index SHARED ${INDEX_FILES})
 
 target_link_libraries(milvus_index milvus_storage)
 
+# Link pmem libs here
+find_library(pmem "pmem" "/usr/local/lib" REQUIRED)
+find_library(pmemobj "pmemobj" "/usr/local/lib" REQUIRED)
+
+target_link_libraries(milvus_index pmem)
+target_link_libraries(milvus_index pmemobj)
+
 install(TARGETS milvus_index DESTINATION "${CMAKE_INSTALL_LIBDIR}")
