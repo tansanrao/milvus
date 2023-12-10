@@ -19,7 +19,6 @@ package task
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -36,6 +35,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/funcutil"
+	"github.com/milvus-io/milvus/pkg/util/hardware"
 	"github.com/milvus-io/milvus/pkg/util/merr"
 	. "github.com/milvus-io/milvus/pkg/util/typeutil"
 )
@@ -421,7 +421,7 @@ func (scheduler *taskScheduler) promote(task Task) error {
 		zap.Int64("taskID", task.ID()),
 		zap.Int64("collectionID", task.CollectionID()),
 		zap.Int64("replicaID", task.ReplicaID()),
-		zap.Int64("source", task.SourceID()),
+		zap.String("source", task.Source().String()),
 	)
 
 	if err := scheduler.check(task); err != nil {
@@ -552,7 +552,7 @@ func (scheduler *taskScheduler) schedule(node int64) {
 	// The scheduler doesn't limit the number of tasks,
 	// to commit tasks to executors as soon as possible, to reach higher merge possibility
 	failCount := atomic.NewInt32(0)
-	funcutil.ProcessFuncParallel(len(toProcess), runtime.GOMAXPROCS(0), func(idx int) error {
+	funcutil.ProcessFuncParallel(len(toProcess), hardware.GetCPUNum(), func(idx int) error {
 		if !scheduler.process(toProcess[idx]) {
 			failCount.Inc()
 		}
@@ -643,7 +643,7 @@ func (scheduler *taskScheduler) process(task Task) bool {
 		zap.Int64("collectionID", task.CollectionID()),
 		zap.Int64("replicaID", task.ReplicaID()),
 		zap.String("type", GetTaskType(task).String()),
-		zap.Int64("source", task.SourceID()),
+		zap.String("source", task.Source().String()),
 	)
 
 	actions, step := task.Actions(), task.Step()
@@ -733,7 +733,7 @@ func (scheduler *taskScheduler) checkStale(task Task) error {
 		zap.Int64("taskID", task.ID()),
 		zap.Int64("collectionID", task.CollectionID()),
 		zap.Int64("replicaID", task.ReplicaID()),
-		zap.Int64("source", task.SourceID()),
+		zap.String("source", task.Source().String()),
 	)
 
 	switch task := task.(type) {
@@ -770,7 +770,7 @@ func (scheduler *taskScheduler) checkSegmentTaskStale(task *SegmentTask) error {
 		zap.Int64("taskID", task.ID()),
 		zap.Int64("collectionID", task.CollectionID()),
 		zap.Int64("replicaID", task.ReplicaID()),
-		zap.Int64("source", task.SourceID()),
+		zap.String("source", task.Source().String()),
 	)
 
 	for _, action := range task.Actions() {
@@ -814,7 +814,7 @@ func (scheduler *taskScheduler) checkChannelTaskStale(task *ChannelTask) error {
 		zap.Int64("taskID", task.ID()),
 		zap.Int64("collectionID", task.CollectionID()),
 		zap.Int64("replicaID", task.ReplicaID()),
-		zap.Int64("source", task.SourceID()),
+		zap.String("source", task.Source().String()),
 	)
 
 	for _, action := range task.Actions() {

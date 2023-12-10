@@ -142,7 +142,7 @@ func (s *Server) balanceSegments(ctx context.Context, req *querypb.LoadBalanceRe
 		)
 		task, err := task.NewSegmentTask(ctx,
 			Params.QueryCoordCfg.SegmentTaskTimeout.GetAsDuration(time.Millisecond),
-			req.GetBase().GetMsgID(),
+			task.WrapIDSource(req.GetBase().GetMsgID()),
 			req.GetCollectionID(),
 			replica.GetID(),
 			task.NewSegmentActionWithScope(plan.To, task.ActionTypeGrow, plan.Segment.GetInsertChannel(), plan.Segment.GetID(), querypb.DataScope_Historical),
@@ -179,7 +179,7 @@ func (s *Server) getSystemInfoMetrics(
 			BaseComponentInfos: metricsinfo.BaseComponentInfos{
 				Name: metricsinfo.ConstructComponentName(typeutil.QueryCoordRole, paramtable.GetNodeID()),
 				HardwareInfos: metricsinfo.HardwareMetrics{
-					IP:           s.session.Address,
+					IP:           s.session.GetAddress(),
 					CPUCoreCount: hardware.GetCPUNum(),
 					CPUCoreUsage: hardware.GetCPUUsage(),
 					Memory:       hardware.GetMemoryCount(),

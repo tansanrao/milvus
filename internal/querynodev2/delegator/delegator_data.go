@@ -186,7 +186,7 @@ func (sd *shardDelegator) ProcessDelete(deleteData []*DeleteData, ts uint64) {
 
 	offlineSegments := typeutil.NewConcurrentSet[int64]()
 
-	sealed, growing, version := sd.distribution.GetSegments(false)
+	sealed, growing, version := sd.distribution.PinOnlineSegments()
 
 	eg, ctx := errgroup.WithContext(context.Background())
 	for _, entry := range sealed {
@@ -225,7 +225,7 @@ func (sd *shardDelegator) ProcessDelete(deleteData []*DeleteData, ts uint64) {
 	// not error return in apply delete
 	_ = eg.Wait()
 
-	sd.distribution.FinishUsage(version)
+	sd.distribution.Unpin(version)
 	offlineSegIDs := offlineSegments.Collect()
 	if len(offlineSegIDs) > 0 {
 		log.Warn("failed to apply delete, mark segment offline", zap.Int64s("offlineSegments", offlineSegIDs))
@@ -262,7 +262,10 @@ func (sd *shardDelegator) applyDelete(ctx context.Context, nodeID int64, worker 
 					PrimaryKeys:  storage.ParsePrimaryKeys2IDs(delRecord.PrimaryKeys),
 					Timestamps:   delRecord.Timestamps,
 				})
-				if errors.Is(err, merr.ErrSegmentNotFound) {
+				if errors.Is(err, merr.ErrNodeNotFound) {
+					log.Warn("try to delete data on non-exist node")
+					return retry.Unrecoverable(err)
+				} else if errors.Is(err, merr.ErrSegmentNotFound) {
 					log.Warn("try to delete data of released segment")
 					return nil
 				} else if err != nil {

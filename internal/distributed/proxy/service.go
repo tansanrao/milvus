@@ -169,6 +169,15 @@ func (s *Server) startHTTPServer(errChan chan error) {
 	defer s.wg.Done()
 	ginHandler := gin.Default()
 	ginHandler.Use(func(c *gin.Context) {
+		_, err := strconv.ParseBool(c.Request.Header.Get(httpserver.HTTPHeaderAllowInt64))
+		if err != nil {
+			httpParams := &paramtable.Get().HTTPCfg
+			if httpParams.AcceptTypeAllowInt64.GetAsBool() {
+				c.Request.Header.Set(httpserver.HTTPHeaderAllowInt64, "true")
+			} else {
+				c.Request.Header.Set(httpserver.HTTPHeaderAllowInt64, "false")
+			}
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
@@ -630,8 +639,6 @@ func (s *Server) start() error {
 func (s *Server) Stop() error {
 	Params := &paramtable.Get().ProxyGrpcServerCfg
 	log.Debug("Proxy stop", zap.String("internal address", Params.GetInternalAddress()), zap.String("external address", Params.GetInternalAddress()))
-	s.proxy.UpdateStateCode(commonpb.StateCode_Abnormal)
-	var err error
 
 	if s.etcdCli != nil {
 		defer s.etcdCli.Close()
@@ -642,25 +649,32 @@ func (s *Server) Stop() error {
 	gracefulWg.Add(1)
 	go func() {
 		defer gracefulWg.Done()
-		if s.grpcInternalServer != nil {
-			utils.GracefulStopGRPCServer(s.grpcInternalServer)
-		}
+
 		if s.tcpServer != nil {
-			log.Info("Graceful stop Proxy tcp server...")
+			log.Info("Proxy stop tcp server...")
 			s.tcpServer.Close()
-		} else if s.grpcExternalServer != nil {
+		}
+
+		if s.grpcExternalServer != nil {
+			log.Info("Proxy stop external grpc server")
 			utils.GracefulStopGRPCServer(s.grpcExternalServer)
-			if s.httpServer != nil {
-				log.Info("Graceful stop grpc http server...")
-				s.httpServer.Close()
-			}
+		}
+
+		if s.httpServer != nil {
+			log.Info("Proxy stop http server...")
+			s.httpServer.Close()
+		}
+
+		if s.grpcInternalServer != nil {
+			log.Info("Proxy stop internal grpc server")
+			utils.GracefulStopGRPCServer(s.grpcInternalServer)
 		}
 	}()
 	gracefulWg.Wait()
 
 	s.wg.Wait()
 
-	err = s.proxy.Stop()
+	err := s.proxy.Stop()
 	if err != nil {
 		return err
 	}

@@ -276,6 +276,10 @@ func (c *ChannelManager) bgCheckChannelsWork(ctx context.Context) {
 			log.Info("background checking channels loop quit")
 			return
 		case <-ticker.C:
+			if !Params.DataCoordCfg.AutoBalance.GetAsBool() {
+				return
+			}
+
 			c.mu.Lock()
 			if !c.isSilent() {
 				log.Info("ChannelManager is not silent, skip channel balance this round")
@@ -343,7 +347,19 @@ func (c *ChannelManager) AddNode(nodeID int64) error {
 
 	c.store.Add(nodeID)
 
-	updates := c.registerPolicy(c.store, nodeID)
+	bufferedUpdates, balanceUpdates := c.registerPolicy(c.store, nodeID)
+
+	updates := bufferedUpdates
+	// try bufferedUpdates first
+	if len(updates) <= 0 {
+		if !Params.DataCoordCfg.AutoBalance.GetAsBool() {
+			log.Info("auto balance disabled, skip reassignment for balance", zap.Int64("registered node", nodeID))
+			return nil
+		}
+		// if auto balance enabled, try balanceUpdates
+		updates = balanceUpdates
+	}
+
 	if len(updates) <= 0 {
 		log.Info("register node with no reassignment", zap.Int64("registered node", nodeID))
 		return nil

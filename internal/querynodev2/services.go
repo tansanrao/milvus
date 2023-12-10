@@ -95,12 +95,14 @@ func (node *QueryNode) GetStatisticsChannel(ctx context.Context, req *internalpb
 
 // GetStatistics returns loaded statistics of collection.
 func (node *QueryNode) GetStatistics(ctx context.Context, req *querypb.GetStatisticsRequest) (*internalpb.GetStatisticsResponse, error) {
-	log.Debug("received GetStatisticsRequest",
+	log := log.Ctx(ctx).With(
 		zap.Int64("msgID", req.GetReq().GetBase().GetMsgID()),
 		zap.Strings("vChannels", req.GetDmlChannels()),
 		zap.Int64s("segmentIDs", req.GetSegmentIDs()),
 		zap.Uint64("guaranteeTimestamp", req.GetReq().GetGuaranteeTimestamp()),
-		zap.Uint64("timeTravel", req.GetReq().GetTravelTimestamp()))
+		zap.Uint64("timeTravel", req.GetReq().GetTravelTimestamp()),
+	)
+	log.Debug("received GetStatisticsRequest")
 
 	if err := node.lifetime.Add(merr.IsHealthy); err != nil {
 		return &internalpb.GetStatisticsResponse{
@@ -222,6 +224,12 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 		return merr.Status(err), nil
 	}
 
+	// check index
+	if len(req.GetIndexInfoList()) == 0 {
+		err := merr.WrapErrIndexNotFoundForCollection(req.GetSchema().GetName())
+		return merr.Status(err), nil
+	}
+
 	if !node.subscribingChannels.Insert(channel.GetChannelName()) {
 		msg := "channel subscribing..."
 		log.Warn(msg)
@@ -246,7 +254,7 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 		node.composeIndexMeta(req.GetIndexInfoList(), req.Schema), req.GetLoadMeta())
 	collection := node.manager.Collection.Get(req.GetCollectionID())
 	collection.SetMetricType(req.GetLoadMeta().GetMetricType())
-	delegator, err := delegator.NewShardDelegator(req.GetCollectionID(), req.GetReplicaID(), channel.GetChannelName(), req.GetVersion(),
+	delegator, err := delegator.NewShardDelegator(ctx, req.GetCollectionID(), req.GetReplicaID(), channel.GetChannelName(), req.GetVersion(),
 		node.clusterManager, node.manager, node.tSafeManager, node.loader, node.factory, channel.GetSeekPosition().GetTimestamp())
 	if err != nil {
 		log.Warn("failed to create shard delegator", zap.Error(err))
@@ -260,10 +268,10 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 	}()
 
 	// create tSafe
-	node.tSafeManager.Add(channel.ChannelName, channel.GetSeekPosition().GetTimestamp())
+	node.tSafeManager.Add(ctx, channel.ChannelName, channel.GetSeekPosition().GetTimestamp())
 	defer func() {
 		if err != nil {
-			node.tSafeManager.Remove(channel.ChannelName)
+			node.tSafeManager.Remove(ctx, channel.ChannelName)
 		}
 	}()
 
@@ -361,7 +369,7 @@ func (node *QueryNode) UnsubDmChannel(ctx context.Context, req *querypb.UnsubDmC
 
 		node.pipelineManager.Remove(req.GetChannelName())
 		node.manager.Segment.RemoveBy(segments.WithChannel(req.GetChannelName()), segments.WithType(segments.SegmentTypeGrowing))
-		node.tSafeManager.Remove(req.GetChannelName())
+		node.tSafeManager.Remove(ctx, req.GetChannelName())
 
 		node.manager.Collection.Unref(req.GetCollectionID(), 1)
 	}
@@ -1194,7 +1202,7 @@ func (node *QueryNode) GetMetrics(ctx context.Context, req *milvuspb.GetMetricsR
 }
 
 func (node *QueryNode) GetDataDistribution(ctx context.Context, req *querypb.GetDataDistributionRequest) (*querypb.GetDataDistributionResponse, error) {
-	log := log.With(
+	log := log.Ctx(ctx).With(
 		zap.Int64("msgID", req.GetBase().GetMsgID()),
 		zap.Int64("nodeID", paramtable.GetNodeID()),
 	)
@@ -1309,7 +1317,7 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 
 	// translate segment action
 	removeActions := make([]*querypb.SyncAction, 0)
-	addSegments := make(map[int64][]*querypb.SegmentLoadInfo)
+	group, ctx := errgroup.WithContext(ctx)
 	for _, action := range req.GetActions() {
 		log := log.With(zap.String("Action",
 			action.GetType().String()))
@@ -1323,7 +1331,26 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 				log.Warn("sync request from legacy querycoord without load info, skip")
 				continue
 			}
-			addSegments[action.GetNodeID()] = append(addSegments[action.GetNodeID()], action.GetInfo())
+
+			// to pass segment'version, we call load segment one by one
+			action := action
+			group.Go(func() error {
+				return shardDelegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
+					Base: commonpbutil.NewMsgBase(
+						commonpbutil.WithMsgType(commonpb.MsgType_LoadSegments),
+						commonpbutil.WithMsgID(req.Base.GetMsgID()),
+					),
+					Infos:        []*querypb.SegmentLoadInfo{action.GetInfo()},
+					Schema:       req.GetSchema(),
+					LoadMeta:     req.GetLoadMeta(),
+					CollectionID: req.GetCollectionID(),
+					ReplicaID:    req.GetReplicaID(),
+					DstNodeID:    action.GetNodeID(),
+					Version:      action.GetVersion(),
+					NeedTransfer: false,
+					LoadScope:    querypb.LoadScope_Delta,
+				})
+			})
 		case querypb.SyncType_UpdateVersion:
 			log.Info("sync action", zap.Int64("TargetVersion", action.GetTargetVersion()))
 			pipeline := node.pipelineManager.Get(req.GetChannel())
@@ -1345,25 +1372,10 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 		}
 	}
 
-	for nodeID, infos := range addSegments {
-		err := shardDelegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
-			Base: commonpbutil.NewMsgBase(
-				commonpbutil.WithMsgType(commonpb.MsgType_LoadSegments),
-				commonpbutil.WithMsgID(req.Base.GetMsgID()),
-			),
-			Infos:        infos,
-			Schema:       req.GetSchema(),
-			LoadMeta:     req.GetLoadMeta(),
-			CollectionID: req.GetCollectionID(),
-			ReplicaID:    req.GetReplicaID(),
-			DstNodeID:    nodeID,
-			Version:      req.GetVersion(),
-			NeedTransfer: false,
-			LoadScope:    querypb.LoadScope_Delta,
-		})
-		if err != nil {
-			return merr.Status(err), nil
-		}
+	err := group.Wait()
+	if err != nil {
+		log.Warn("failed to sync distribution", zap.Error(err))
+		return merr.Status(err), nil
 	}
 
 	for _, action := range removeActions {

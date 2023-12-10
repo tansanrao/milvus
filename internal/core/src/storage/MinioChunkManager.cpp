@@ -238,6 +238,9 @@ void
 MinioChunkManager::BuildAliyunCloudClient(
     const StorageConfig& storage_config,
     const Aws::Client::ClientConfiguration& config) {
+    // For aliyun oss, support use virtual host mode
+    StorageConfig mutable_config = storage_config;
+    mutable_config.useVirtualHost = true;
     if (storage_config.useIAM) {
         auto aliyun_provider = Aws::MakeShared<
             Aws::Auth::AliyunSTSAssumeRoleWebIdentityCredentialsProvider>(
@@ -253,9 +256,9 @@ MinioChunkManager::BuildAliyunCloudClient(
             aliyun_provider,
             config,
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            storage_config.useVirtualHost);
+            mutable_config.useVirtualHost);
     } else {
-        BuildAccessKeyClient(storage_config, config);
+        BuildAccessKeyClient(mutable_config, config);
     }
 }
 
@@ -347,7 +350,7 @@ MinioChunkManager::Remove(const std::string& filepath) {
 
 std::vector<std::string>
 MinioChunkManager::ListWithPrefix(const std::string& filepath) {
-    return ListObjects(default_bucket_name_.c_str(), filepath.c_str());
+    return ListObjects(default_bucket_name_, filepath);
 }
 
 uint64_t
@@ -393,7 +396,7 @@ MinioChunkManager::ListBuckets() {
         ThrowS3Error("ListBuckets", err, "params");
     }
     for (auto&& b : outcome.GetResult().GetBuckets()) {
-        buckets.emplace_back(b.GetName().c_str());
+        buckets.emplace_back(b.GetName());
     }
     return buckets;
 }
@@ -458,7 +461,7 @@ MinioChunkManager::ObjectExists(const std::string& bucket_name,
     return true;
 }
 
-int64_t
+uint64_t
 MinioChunkManager::GetObjectSize(const std::string& bucket_name,
                                  const std::string& object_name) {
     Aws::S3::Model::HeadObjectRequest request;
@@ -623,7 +626,7 @@ MinioChunkManager::ListObjects(const std::string& bucket_name,
     }
     auto objects = outcome.GetResult().GetContents();
     for (auto& obj : objects) {
-        objects_vec.emplace_back(obj.GetKey().c_str());
+        objects_vec.emplace_back(obj.GetKey());
     }
     return objects_vec;
 }

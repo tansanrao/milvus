@@ -14,7 +14,6 @@ package paramtable
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/milvus-io/milvus/pkg/config"
 	"github.com/milvus-io/milvus/pkg/log"
+	"github.com/milvus-io/milvus/pkg/util/hardware"
 	"github.com/milvus-io/milvus/pkg/util/metricsinfo"
 )
 
@@ -37,7 +37,7 @@ const (
 	DefaultMiddlePriorityThreadCoreCoefficient = 5
 	DefaultLowPriorityThreadCoreCoefficient    = 1
 
-	DefaultSessionTTL        = 60 // s
+	DefaultSessionTTL        = 30 // s
 	DefaultSessionRetryTimes = 30
 
 	DefaultMaxDegree                = 56
@@ -1195,16 +1195,17 @@ type queryCoordConfig struct {
 	// Deprecated: Since 2.2.2, use different interval for different checker
 	CheckInterval ParamItem `refreshable:"true"`
 
-	NextTargetSurviveTime       ParamItem `refreshable:"true"`
-	UpdateNextTargetInterval    ParamItem `refreshable:"false"`
-	CheckNodeInReplicaInterval  ParamItem `refreshable:"false"`
-	CheckResourceGroupInterval  ParamItem `refreshable:"false"`
-	EnableRGAutoRecover         ParamItem `refreshable:"true"`
-	CheckHealthInterval         ParamItem `refreshable:"false"`
-	CheckHealthRPCTimeout       ParamItem `refreshable:"true"`
-	BrokerTimeout               ParamItem `refreshable:"false"`
-	CollectionRecoverTimesLimit ParamItem `refreshable:"true"`
-	ObserverTaskParallel        ParamItem `refreshable:"false"`
+	NextTargetSurviveTime          ParamItem `refreshable:"true"`
+	UpdateNextTargetInterval       ParamItem `refreshable:"false"`
+	CheckNodeInReplicaInterval     ParamItem `refreshable:"false"`
+	CheckResourceGroupInterval     ParamItem `refreshable:"false"`
+	EnableRGAutoRecover            ParamItem `refreshable:"true"`
+	CheckHealthInterval            ParamItem `refreshable:"false"`
+	CheckHealthRPCTimeout          ParamItem `refreshable:"true"`
+	BrokerTimeout                  ParamItem `refreshable:"false"`
+	CollectionRecoverTimesLimit    ParamItem `refreshable:"true"`
+	ObserverTaskParallel           ParamItem `refreshable:"false"`
+	CheckAutoBalanceConfigInterval ParamItem `refreshable:"false"`
 }
 
 func (p *queryCoordConfig) init(base *BaseTable) {
@@ -1252,7 +1253,7 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 	p.AutoBalance = ParamItem{
 		Key:          "queryCoord.autoBalance",
 		Version:      "2.0.0",
-		DefaultValue: "true",
+		DefaultValue: "false",
 		PanicIfEmpty: true,
 		Doc:          "Enable auto balance",
 		Export:       true,
@@ -1526,6 +1527,16 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.ObserverTaskParallel.Init(base.mgr)
+
+	p.CheckAutoBalanceConfigInterval = ParamItem{
+		Key:          "queryCoord.checkAutoBalanceConfigInterval",
+		Version:      "2.3.3",
+		DefaultValue: "10",
+		PanicIfEmpty: true,
+		Doc:          "the interval of check auto balance config",
+		Export:       true,
+	}
+	p.CheckAutoBalanceConfigInterval.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////
@@ -1643,7 +1654,7 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 			} else if factor > 32 {
 				factor = 32
 			}
-			knowhereThreadPoolSize := uint32(runtime.GOMAXPROCS(0)) * uint32(factor)
+			knowhereThreadPoolSize := uint32(hardware.GetCPUNum()) * uint32(factor)
 			return strconv.FormatUint(uint64(knowhereThreadPoolSize), 10)
 		},
 		Doc:    "The number of threads in knowhere's thread pool. If disk is enabled, the pool size will multiply with knowhereThreadPoolNumRatio([1, 32]).",
@@ -1780,7 +1791,7 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 		DefaultValue: "1.0",
 		Formatter: func(v string) string {
 			ratio := getAsFloat(v)
-			cpuNum := int64(runtime.GOMAXPROCS(0))
+			cpuNum := int64(hardware.GetCPUNum())
 			concurrency := int64(float64(cpuNum) * ratio)
 			if concurrency < 1 {
 				return "1" // MaxReadConcurrency must >= 1
@@ -1790,9 +1801,9 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 			return strconv.FormatInt(concurrency, 10)
 		},
 		Doc: `maxReadConcurrentRatio is the concurrency ratio of read task (search task and query task).
-Max read concurrency would be the value of ` + "runtime.NumCPU * maxReadConcurrentRatio" + `.
-It defaults to 2.0, which means max read concurrency would be the value of runtime.NumCPU * 2.
-Max read concurrency must greater than or equal to 1, and less than or equal to runtime.NumCPU * 100.
+Max read concurrency would be the value of ` + "hardware.GetCPUNum * maxReadConcurrentRatio" + `.
+It defaults to 2.0, which means max read concurrency would be the value of hardware.GetCPUNum * 2.
+Max read concurrency must greater than or equal to 1, and less than or equal to hardware.GetCPUNum * 100.
 (0, 100]`,
 		Export: true,
 	}
@@ -2030,6 +2041,9 @@ type dataCoordConfig struct {
 	IndexTaskSchedulerInterval ParamItem `refreshable:"false"`
 
 	MinSegmentNumRowsToEnableIndex ParamItem `refreshable:"true"`
+	// auto balance channel on datanode
+	AutoBalance                    ParamItem `refreshable:"true"`
+	CheckAutoBalanceConfigInterval ParamItem `refreshable:"false"`
 }
 
 func (p *dataCoordConfig) init(base *BaseTable) {
@@ -2385,6 +2399,26 @@ During compaction, the size of segment # of rows is able to exceed segment max #
 		DefaultValue: "1000",
 	}
 	p.IndexTaskSchedulerInterval.Init(base.mgr)
+
+	p.AutoBalance = ParamItem{
+		Key:          "dataCoord.autoBalance",
+		Version:      "2.3.3",
+		DefaultValue: "false",
+		PanicIfEmpty: true,
+		Doc:          "Enable auto balance",
+		Export:       true,
+	}
+	p.AutoBalance.Init(base.mgr)
+
+	p.CheckAutoBalanceConfigInterval = ParamItem{
+		Key:          "dataCoord.checkAutoBalanceConfigInterval",
+		Version:      "2.3.3",
+		DefaultValue: "10",
+		PanicIfEmpty: true,
+		Doc:          "the interval of check auto balance config",
+		Export:       true,
+	}
+	p.CheckAutoBalanceConfigInterval.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////

@@ -155,7 +155,7 @@ func (s *DelegatorSuite) SetupTest() {
 
 	var err error
 	//	s.delegator, err = NewShardDelegator(s.collectionID, s.replicaID, s.vchannelName, s.version, s.workerManager, s.manager, s.tsafeManager, s.loader)
-	s.delegator, err = NewShardDelegator(s.collectionID, s.replicaID, s.vchannelName, s.version, s.workerManager, s.manager, s.tsafeManager, s.loader, &msgstream.MockMqFactory{
+	s.delegator, err = NewShardDelegator(context.Background(), s.collectionID, s.replicaID, s.vchannelName, s.version, s.workerManager, s.manager, s.tsafeManager, s.loader, &msgstream.MockMqFactory{
 		NewMsgStreamFunc: func(_ context.Context) (msgstream.MsgStream, error) {
 			return s.mq, nil
 		},
@@ -434,6 +434,24 @@ func (s *DelegatorSuite) TestSearch() {
 		s.Error(err)
 	})
 
+	s.Run("distribution_not_serviceable", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sd, ok := s.delegator.(*shardDelegator)
+		s.Require().True(ok)
+		sd.distribution.AddOfflines(1001)
+
+		_, err := s.delegator.Search(ctx, &querypb.SearchRequest{
+			Req: &internalpb.SearchRequest{
+				Base: commonpbutil.NewMsgBase(),
+			},
+			DmlChannels: []string{s.vchannelName},
+		})
+
+		s.Error(err)
+	})
+
 	s.Run("cluster_not_serviceable", func() {
 		s.delegator.Close()
 
@@ -598,6 +616,22 @@ func (s *DelegatorSuite) TestQuery() {
 		_, err := s.delegator.Query(ctx, &querypb.QueryRequest{
 			Req:         &internalpb.RetrieveRequest{Base: commonpbutil.NewMsgBase()},
 			DmlChannels: []string{"non_exist_channel"},
+		})
+
+		s.Error(err)
+	})
+
+	s.Run("distribution_not_serviceable", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sd, ok := s.delegator.(*shardDelegator)
+		s.Require().True(ok)
+		sd.distribution.AddOfflines(1001)
+
+		_, err := s.delegator.Query(ctx, &querypb.QueryRequest{
+			Req:         &internalpb.RetrieveRequest{Base: commonpbutil.NewMsgBase()},
+			DmlChannels: []string{s.vchannelName},
 		})
 
 		s.Error(err)
@@ -865,6 +899,25 @@ func (s *DelegatorSuite) TestQueryStream() {
 		s.Error(err)
 	})
 
+	s.Run("distribution_not_serviceable", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sd, ok := s.delegator.(*shardDelegator)
+		s.Require().True(ok)
+		sd.distribution.AddOfflines(1001)
+
+		client := streamrpc.NewLocalQueryClient(ctx)
+		server := client.CreateServer()
+
+		// run stream function
+		err := s.delegator.QueryStream(ctx, &querypb.QueryRequest{
+			Req:         &internalpb.RetrieveRequest{Base: commonpbutil.NewMsgBase()},
+			DmlChannels: []string{s.vchannelName},
+		}, server)
+		s.Error(err)
+	})
+
 	s.Run("cluster_not_serviceable", func() {
 		s.delegator.Close()
 
@@ -1023,6 +1076,22 @@ func (s *DelegatorSuite) TestGetStats() {
 		s.Error(err)
 	})
 
+	s.Run("distribution_not_serviceable", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sd, ok := s.delegator.(*shardDelegator)
+		s.Require().True(ok)
+		sd.distribution.AddOfflines(1001)
+
+		_, err := s.delegator.GetStatistics(ctx, &querypb.GetStatisticsRequest{
+			Req:         &internalpb.GetStatisticsRequest{Base: commonpbutil.NewMsgBase()},
+			DmlChannels: []string{s.vchannelName},
+		})
+
+		s.Error(err)
+	})
+
 	s.Run("cluster_not_serviceable", func() {
 		s.delegator.Close()
 
@@ -1046,7 +1115,7 @@ func TestDelegatorWatchTsafe(t *testing.T) {
 	channelName := "default_dml_channel"
 
 	tsafeManager := tsafe.NewTSafeReplica()
-	tsafeManager.Add(channelName, 100)
+	tsafeManager.Add(context.Background(), channelName, 100)
 	sd := &shardDelegator{
 		tsafeManager: tsafeManager,
 		vchannelName: channelName,
@@ -1073,7 +1142,7 @@ func TestDelegatorTSafeListenerClosed(t *testing.T) {
 	channelName := "default_dml_channel"
 
 	tsafeManager := tsafe.NewTSafeReplica()
-	tsafeManager.Add(channelName, 100)
+	tsafeManager.Add(context.Background(), channelName, 100)
 	sd := &shardDelegator{
 		tsafeManager: tsafeManager,
 		vchannelName: channelName,
@@ -1098,7 +1167,7 @@ func TestDelegatorTSafeListenerClosed(t *testing.T) {
 	case <-time.After(time.Millisecond * 10):
 	}
 
-	tsafeManager.Remove(channelName)
+	tsafeManager.Remove(context.Background(), channelName)
 
 	select {
 	case <-signal:

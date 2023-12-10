@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
@@ -36,6 +37,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/types"
+	"github.com/milvus-io/milvus/internal/util/dependency"
 	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/util/funcutil"
 	"github.com/milvus-io/milvus/pkg/util/merr"
@@ -1906,28 +1908,84 @@ func TestSearchTask_Requery(t *testing.T) {
 		ids[i] = int64(i)
 	}
 
+	factory := dependency.NewDefaultFactory(true)
+	node, err := NewProxy(ctx, factory)
+	assert.NoError(t, err)
+	node.UpdateStateCode(commonpb.StateCode_Healthy)
+	node.tsoAllocator = &timestampAllocator{
+		tso: newMockTimestampAllocatorInterface(),
+	}
+	scheduler, err := newTaskScheduler(ctx, node.tsoAllocator, factory)
+	assert.NoError(t, err)
+	node.sched = scheduler
+	err = node.sched.Start()
+	assert.NoError(t, err)
+	err = node.initRateCollector()
+	assert.NoError(t, err)
+	node.rootCoord = mocks.NewMockRootCoordClient(t)
+	node.queryCoord = mocks.NewMockQueryCoordClient(t)
+
+	collectionName := "col"
+	collectionID := UniqueID(0)
+	cache := NewMockCache(t)
+	cache.EXPECT().GetCollectionID(mock.Anything, mock.Anything, mock.Anything).Return(collectionID, nil).Maybe()
+	cache.EXPECT().GetCollectionSchema(mock.Anything, mock.Anything, mock.Anything).Return(constructCollectionSchema(pkField, vecField, dim, collection), nil).Maybe()
+	cache.EXPECT().GetPartitions(mock.Anything, mock.Anything, mock.Anything).Return(map[string]int64{"_default": UniqueID(1)}, nil).Maybe()
+	cache.EXPECT().GetCollectionInfo(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&collectionBasicInfo{}, nil).Maybe()
+	cache.EXPECT().GetShards(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(map[string][]nodeInfo{}, nil).Maybe()
+	cache.EXPECT().DeprecateShardCache(mock.Anything, mock.Anything).Return().Maybe()
+	globalMetaCache = cache
+
 	t.Run("Test normal", func(t *testing.T) {
 		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
-			Return(&milvuspb.QueryResults{
-				FieldsData: []*schemapb.FieldData{
-					{
-						Type:      schemapb.DataType_Int64,
-						FieldName: pkField,
-						Field: &schemapb.FieldData_Scalars{
-							Scalars: &schemapb.ScalarField{
-								Data: &schemapb.ScalarField_LongData{
-									LongData: &schemapb.LongArray{
-										Data: ids,
-									},
+		qn := mocks.NewMockQueryNodeClient(t)
+		qn.EXPECT().Query(mock.Anything, mock.Anything).RunAndReturn(
+			func(ctx context.Context, request *querypb.QueryRequest, option ...grpc.CallOption) (*internalpb.RetrieveResults, error) {
+				idFieldData := &schemapb.FieldData{
+					Type:      schemapb.DataType_Int64,
+					FieldName: pkField,
+					Field: &schemapb.FieldData_Scalars{
+						Scalars: &schemapb.ScalarField{
+							Data: &schemapb.ScalarField_LongData{
+								LongData: &schemapb.LongArray{
+									Data: ids,
 								},
 							},
 						},
 					},
-					newFloatVectorFieldData(vecField, rows, dim),
-				},
-			}, nil)
+				}
+				idField := &schemapb.IDs{
+					IdField: &schemapb.IDs_IntId{
+						IntId: &schemapb.LongArray{
+							Data: ids,
+						},
+					},
+				}
+				if request.GetReq().GetOutputFieldsId()[0] == 100 {
+					return &internalpb.RetrieveResults{
+						Ids: idField,
+						FieldsData: []*schemapb.FieldData{
+							idFieldData,
+							newFloatVectorFieldData(vecField, rows, dim),
+						},
+					}, nil
+				}
+				return &internalpb.RetrieveResults{
+					Ids: idField,
+					FieldsData: []*schemapb.FieldData{
+						newFloatVectorFieldData(vecField, rows, dim),
+						idFieldData,
+					},
+				}, nil
+			})
+
+		lb := NewMockLBPolicy(t)
+		lb.EXPECT().Execute(mock.Anything, mock.Anything).Run(func(ctx context.Context, workload CollectionWorkLoad) {
+			err = workload.exec(ctx, 0, qn)
+			assert.NoError(t, err)
+		}).Return(nil)
+		lb.EXPECT().UpdateCostMetrics(mock.Anything, mock.Anything).Return()
+		node.lbPolicy = lb
 
 		resultIDs := &schemapb.IDs{
 			IdField: &schemapb.IDs_IntId{
@@ -1937,7 +1995,7 @@ func TestSearchTask_Requery(t *testing.T) {
 			},
 		}
 
-		outputFields := []string{vecField}
+		outputFields := []string{pkField, vecField}
 		qt := &searchTask{
 			ctx: ctx,
 			SearchRequest: &internalpb.SearchRequest{
@@ -1947,7 +2005,8 @@ func TestSearchTask_Requery(t *testing.T) {
 				},
 			},
 			request: &milvuspb.SearchRequest{
-				OutputFields: outputFields,
+				CollectionName: collectionName,
+				OutputFields:   outputFields,
 			},
 			result: &milvuspb.SearchResults{
 				Results: &schemapb.SearchResultData{
@@ -1961,8 +2020,9 @@ func TestSearchTask_Requery(t *testing.T) {
 
 		err := qt.Requery()
 		assert.NoError(t, err)
-		assert.Len(t, qt.result.Results.FieldsData, 1)
-		assert.Equal(t, vecField, qt.result.Results.FieldsData[0].GetFieldName())
+		assert.Len(t, qt.result.Results.FieldsData, 2)
+		assert.Equal(t, pkField, qt.result.Results.FieldsData[0].GetFieldName())
+		assert.Equal(t, vecField, qt.result.Results.FieldsData[1].GetFieldName())
 	})
 
 	t.Run("Test no primary key", func(t *testing.T) {
@@ -1988,41 +2048,17 @@ func TestSearchTask_Requery(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("Test requery failed 1", func(t *testing.T) {
+	t.Run("Test requery failed", func(t *testing.T) {
 		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
+		qn := mocks.NewMockQueryNodeClient(t)
+		qn.EXPECT().Query(mock.Anything, mock.Anything).
 			Return(nil, fmt.Errorf("mock err 1"))
 
-		qt := &searchTask{
-			ctx: ctx,
-			SearchRequest: &internalpb.SearchRequest{
-				Base: &commonpb.MsgBase{
-					MsgType:  commonpb.MsgType_Search,
-					SourceID: paramtable.GetNodeID(),
-				},
-			},
-			request: &milvuspb.SearchRequest{},
-			schema:  schema,
-			tr:      timerecord.NewTimeRecorder("search"),
-			node:    node,
-		}
-
-		err := qt.Requery()
-		t.Logf("err = %s", err)
-		assert.Error(t, err)
-	})
-
-	t.Run("Test requery failed 2", func(t *testing.T) {
-		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
-			Return(&milvuspb.QueryResults{
-				Status: &commonpb.Status{
-					ErrorCode: commonpb.ErrorCode_UnexpectedError,
-					Reason:    "mock err 2",
-				},
-			}, nil)
+		lb := NewMockLBPolicy(t)
+		lb.EXPECT().Execute(mock.Anything, mock.Anything).Run(func(ctx context.Context, workload CollectionWorkLoad) {
+			_ = workload.exec(ctx, 0, qn)
+		}).Return(fmt.Errorf("mock err 1"))
+		node.lbPolicy = lb
 
 		qt := &searchTask{
 			ctx: ctx,
@@ -2032,88 +2068,8 @@ func TestSearchTask_Requery(t *testing.T) {
 					SourceID: paramtable.GetNodeID(),
 				},
 			},
-			request: &milvuspb.SearchRequest{},
-			schema:  schema,
-			tr:      timerecord.NewTimeRecorder("search"),
-			node:    node,
-		}
-
-		err := qt.Requery()
-		t.Logf("err = %s", err)
-		assert.Error(t, err)
-	})
-
-	t.Run("Test get pk field data failed", func(t *testing.T) {
-		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
-			Return(&milvuspb.QueryResults{
-				FieldsData: []*schemapb.FieldData{},
-			}, nil)
-
-		qt := &searchTask{
-			ctx: ctx,
-			SearchRequest: &internalpb.SearchRequest{
-				Base: &commonpb.MsgBase{
-					MsgType:  commonpb.MsgType_Search,
-					SourceID: paramtable.GetNodeID(),
-				},
-			},
-			request: &milvuspb.SearchRequest{},
-			schema:  schema,
-			tr:      timerecord.NewTimeRecorder("search"),
-			node:    node,
-		}
-
-		err := qt.Requery()
-		t.Logf("err = %s", err)
-		assert.Error(t, err)
-	})
-
-	t.Run("Test incomplete query result", func(t *testing.T) {
-		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
-			Return(&milvuspb.QueryResults{
-				FieldsData: []*schemapb.FieldData{
-					{
-						Type:      schemapb.DataType_Int64,
-						FieldName: pkField,
-						Field: &schemapb.FieldData_Scalars{
-							Scalars: &schemapb.ScalarField{
-								Data: &schemapb.ScalarField_LongData{
-									LongData: &schemapb.LongArray{
-										Data: ids[:len(ids)-1],
-									},
-								},
-							},
-						},
-					},
-					newFloatVectorFieldData(vecField, rows, dim),
-				},
-			}, nil)
-
-		resultIDs := &schemapb.IDs{
-			IdField: &schemapb.IDs_IntId{
-				IntId: &schemapb.LongArray{
-					Data: ids,
-				},
-			},
-		}
-
-		qt := &searchTask{
-			ctx: ctx,
-			SearchRequest: &internalpb.SearchRequest{
-				Base: &commonpb.MsgBase{
-					MsgType:  commonpb.MsgType_Search,
-					SourceID: paramtable.GetNodeID(),
-				},
-			},
-			request: &milvuspb.SearchRequest{},
-			result: &milvuspb.SearchResults{
-				Results: &schemapb.SearchResultData{
-					Ids: resultIDs,
-				},
+			request: &milvuspb.SearchRequest{
+				CollectionName: collectionName,
 			},
 			schema: schema,
 			tr:     timerecord.NewTimeRecorder("search"),
@@ -2127,9 +2083,15 @@ func TestSearchTask_Requery(t *testing.T) {
 
 	t.Run("Test postExecute with requery failed", func(t *testing.T) {
 		schema := constructCollectionSchema(pkField, vecField, dim, collection)
-		node := mocks.NewMockProxy(t)
-		node.EXPECT().Query(mock.Anything, mock.Anything).
+		qn := mocks.NewMockQueryNodeClient(t)
+		qn.EXPECT().Query(mock.Anything, mock.Anything).
 			Return(nil, fmt.Errorf("mock err 1"))
+
+		lb := NewMockLBPolicy(t)
+		lb.EXPECT().Execute(mock.Anything, mock.Anything).Run(func(ctx context.Context, workload CollectionWorkLoad) {
+			_ = workload.exec(ctx, 0, qn)
+		}).Return(fmt.Errorf("mock err 1"))
+		node.lbPolicy = lb
 
 		resultIDs := &schemapb.IDs{
 			IdField: &schemapb.IDs_IntId{
@@ -2147,7 +2109,9 @@ func TestSearchTask_Requery(t *testing.T) {
 					SourceID: paramtable.GetNodeID(),
 				},
 			},
-			request: &milvuspb.SearchRequest{},
+			request: &milvuspb.SearchRequest{
+				CollectionName: collectionName,
+			},
 			result: &milvuspb.SearchResults{
 				Results: &schemapb.SearchResultData{
 					Ids: resultIDs,

@@ -30,12 +30,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
 	"github.com/milvus-io/milvus/internal/proto/datapb"
+	"github.com/milvus-io/milvus/internal/proto/indexpb"
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/proto/planpb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
@@ -44,6 +46,7 @@ import (
 	"github.com/milvus-io/milvus/internal/storage"
 	"github.com/milvus-io/milvus/internal/util/dependency"
 	"github.com/milvus-io/milvus/internal/util/streamrpc"
+	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/mq/msgstream"
 	"github.com/milvus-io/milvus/pkg/util/conc"
 	"github.com/milvus-io/milvus/pkg/util/etcd"
@@ -279,6 +282,9 @@ func (suite *ServiceSuite) TestWatchDmChannelsInt64() {
 			PartitionIDs: suite.partitionIDs,
 			MetricType:   defaultMetricType,
 		},
+		IndexInfoList: []*indexpb.IndexInfo{
+			{},
+		},
 	}
 
 	// mocks
@@ -328,6 +334,9 @@ func (suite *ServiceSuite) TestWatchDmChannelsVarchar() {
 			PartitionIDs: suite.partitionIDs,
 			MetricType:   defaultMetricType,
 		},
+		IndexInfoList: []*indexpb.IndexInfo{
+			{},
+		},
 	}
 
 	// mocks
@@ -374,6 +383,9 @@ func (suite *ServiceSuite) TestWatchDmChannels_Failed() {
 		LoadMeta: &querypb.LoadMetaInfo{
 			MetricType: defaultMetricType,
 		},
+		IndexInfoList: []*indexpb.IndexInfo{
+			{},
+		},
 	}
 
 	// test channel is unsubscribing
@@ -392,6 +404,12 @@ func (suite *ServiceSuite) TestWatchDmChannels_Failed() {
 	status, err = suite.node.WatchDmChannels(ctx, req)
 	suite.NoError(err)
 	suite.Equal(commonpb.ErrorCode_UnexpectedError, status.GetErrorCode())
+
+	// empty index
+	req.IndexInfoList = nil
+	status, err = suite.node.WatchDmChannels(ctx, req)
+	err = merr.CheckRPCCall(status, err)
+	suite.ErrorIs(err, merr.ErrIndexNotFound)
 
 	// target not match
 	req.Base.TargetID = -1
@@ -1749,6 +1767,7 @@ func (suite *ServiceSuite) TestSyncDistribution_Normal() {
 	suite.NoError(err)
 	suite.Equal(commonpb.ErrorCode_Success, status.ErrorCode)
 
+	// test sync targte version
 	syncVersionAction := &querypb.SyncAction{
 		Type:            querypb.SyncType_UpdateVersion,
 		SealedInTarget:  []int64{3},
@@ -1761,6 +1780,37 @@ func (suite *ServiceSuite) TestSyncDistribution_Normal() {
 	status, err = suite.node.SyncDistribution(ctx, req)
 	suite.NoError(err)
 	suite.Equal(commonpb.ErrorCode_Success, status.GetErrorCode())
+
+	// test sync segments
+	segmentVersion := int64(111)
+	syncSegmentVersion := &querypb.SyncAction{
+		Type:        querypb.SyncType_Set,
+		SegmentID:   suite.validSegmentIDs[0],
+		NodeID:      0,
+		PartitionID: suite.partitionIDs[0],
+		Info:        &querypb.SegmentLoadInfo{},
+		Version:     segmentVersion,
+	}
+	req.Actions = []*querypb.SyncAction{syncSegmentVersion}
+
+	testChannel := "test_sync_segment"
+	req.Channel = testChannel
+
+	// expected call load segment with right segment version
+	var versionMatch bool
+	mockDelegator := delegator.NewMockShardDelegator(suite.T())
+	mockDelegator.EXPECT().LoadSegments(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, req *querypb.LoadSegmentsRequest) error {
+			log.Info("version", zap.Int64("versionInload", req.GetVersion()))
+			versionMatch = req.GetVersion() == segmentVersion
+			return nil
+		})
+	suite.node.delegators.Insert(testChannel, mockDelegator)
+
+	status, err = suite.node.SyncDistribution(ctx, req)
+	suite.NoError(err)
+	suite.Equal(commonpb.ErrorCode_Success, status.GetErrorCode())
+	suite.True(versionMatch)
 }
 
 func (suite *ServiceSuite) TestSyncDistribution_ReleaseResultCheck() {

@@ -31,7 +31,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"runtime"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -103,7 +102,7 @@ func NewLoader(
 	manager *Manager,
 	cm storage.ChunkManager,
 ) *segmentLoader {
-	cpuNum := runtime.GOMAXPROCS(0)
+	cpuNum := hardware.GetCPUNum()
 	ioPoolSize := cpuNum * 8
 	// make sure small machines could load faster
 	if ioPoolSize < 32 {
@@ -197,7 +196,7 @@ func (loader *segmentLoader) Load(ctx context.Context,
 	// Check memory & storage limit
 	resource, concurrencyLevel, err := loader.requestResource(ctx, infos...)
 	if err != nil {
-		log.Error("request resource failed", zap.Error(err))
+		log.Warn("request resource failed", zap.Error(err))
 		return nil, err
 	}
 	defer loader.freeRequest(resource)
@@ -366,7 +365,10 @@ func (loader *segmentLoader) requestResource(ctx context.Context, infos ...*quer
 	}
 	diskCap := paramtable.Get().QueryNodeCfg.DiskCapacityLimit.GetAsUint64()
 
-	poolCap := runtime.NumCPU() * paramtable.Get().CommonCfg.HighPriorityThreadCoreCoefficient.GetAsInt()
+	poolCap := hardware.GetCPUNum() * paramtable.Get().CommonCfg.HighPriorityThreadCoreCoefficient.GetAsInt()
+	if poolCap > 256 {
+		poolCap = 256
+	}
 	if loader.committedResource.WorkNum >= poolCap {
 		return resource, 0, merr.WrapErrServiceRequestLimitExceeded(int32(poolCap))
 	} else if loader.committedResource.MemorySize+memoryUsage >= totalMemory {
@@ -375,7 +377,7 @@ func (loader *segmentLoader) requestResource(ctx context.Context, infos ...*quer
 		return resource, 0, merr.WrapErrServiceDiskLimitExceeded(float32(loader.committedResource.DiskSize+uint64(diskUsage)), float32(diskCap))
 	}
 
-	concurrencyLevel := funcutil.Min(runtime.GOMAXPROCS(0), len(infos))
+	concurrencyLevel := funcutil.Min(hardware.GetCPUNum(), len(infos))
 
 	for _, info := range infos {
 		for _, field := range info.GetBinlogPaths() {
