@@ -119,6 +119,13 @@ add_executable(all_tests
         ${MILVUS_TEST_FILES}
         )
 
+# Link pmem libs here
+find_library(pmem "pmem" "/usr/local/lib" REQUIRED)
+find_library(pmemobj "pmemobj" "/usr/local/lib" REQUIRED)
+
+target_link_libraries(all_tests pmem)
+target_link_libraries(all_tests pmemobj)
+
 target_link_libraries(all_tests
         gtest
         milvus_segcore

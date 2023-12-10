@@ -37,9 +37,10 @@ endif ()
 set( CMAKE_PREFIX_PATH ${CONAN_BOOST_ROOT} )
 FetchContent_Declare(
         knowhere
-        GIT_REPOSITORY  ${GIT_REPOSITORY}
-        GIT_TAG         ${KNOWHERE_VERSION}
-        SOURCE_DIR      ${CMAKE_CURRENT_BINARY_DIR}/knowhere-src
+        # GIT_REPOSITORY  ${GIT_REPOSITORY}
+        # GIT_TAG         ${KNOWHERE_VERSION}
+        # SOURCE_DIR      ${CMAKE_CURRENT_BINARY_DIR}/knowhere-src
+        SOURCE_DIR      /go/src/github.com/milvus-io/knowhere
         BINARY_DIR      ${CMAKE_CURRENT_BINARY_DIR}/knowhere-build
         DOWNLOAD_DIR    ${THIRDPARTY_DOWNLOAD_PATH} )
 

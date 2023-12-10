@@ -10,6 +10,7 @@ x-ccache: &ccache
 services:
   builder:
     image: ${IMAGE_REPO}/milvus-env:${OS_NAME}-${DATE_VERSION}
+    cgroup_parent: system-docker-numa0.slice
     # Build devcontainer
     build:
       context: .
@@ -30,6 +31,8 @@ services:
       CONAN_USER_HOME: /home/milvus
       AZURE_STORAGE_CONNECTION_STRING: ${AZURITE_CONNECTION_STRING}
     volumes: &builder-volumes
+      - /mnt/pmem0:/mnt/pmem0:delegated
+      - ../knowhere:/go/src/github.com/milvus-io/knowhere:delegated
       - .:/go/src/github.com/milvus-io/milvus:delegated
       - ${DOCKER_VOLUME_DIRECTORY:-.docker}/${IMAGE_ARCH}-${OS_NAME}-ccache:/ccache:delegated
       - ${DOCKER_VOLUME_DIRECTORY:-.docker}/${IMAGE_ARCH}-${OS_NAME}-go-mod:/go/pkg/mod:delegated
@@ -48,6 +51,7 @@ services:
 
   gpubuilder:
     image: ${IMAGE_REPO}/milvus-env:gpu-${OS_NAME}-${GPU_DATE_VERSION}
+    cgroup_parent: system-docker-numa0.slice
     # Build devcontainer
     build:
       context: .
@@ -86,6 +90,7 @@ services:
 
   etcd:
     image: milvusdb/etcd:3.5.5-r2
+    cgroup_parent: system-docker-numa0.slice
     environment:
       - ALLOW_NONE_AUTHENTICATION=yes
       - ETCD_AUTO_COMPACTION_MODE=revision
@@ -100,10 +105,12 @@ services:
 
   pulsar:
     image: apachepulsar/pulsar:2.8.2
+    cgroup_parent: system-docker-numa0.slice
     command: bin/pulsar standalone --no-functions-worker --no-stream-storage
 
   minio:
     image: minio/minio:RELEASE.2022-03-17T06-34-49Z
+    cgroup_parent: system-docker-numa0.slice
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -116,11 +123,30 @@ services:
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
+    cgroup_parent: system-docker-numa0.slice
     command: azurite-blob --blobHost 0.0.0.0
 
   jaeger:
     image: jaegertracing/all-in-one:latest
+    cgroup_parent: system-docker-numa0.slice
 
+  client:
+    image: python:3.11-bookworm
+    cgroup_parent: system-docker-numa0.slice
+    command: "tail -f /dev/null"
+    ports:
+      - "8601:8501"
+    volumes:
+      - /mnt/tank/bench_tmp:/tmp/vectordb_bench:delegated
+
+  attu:
+    image: zilliz/attu:v2.3.1
+    cgroup_parent: system-docker-numa0.slice
+    ports:
+      - "3000:3000"
+    environment:
+      - MILVUS_URL=builder:19530
+      
 networks:
   default:
     name: milvus_dev
